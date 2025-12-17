@@ -1,4 +1,4 @@
 [core]
-    remote = storage
-['remote "storage"']
-    url = gdrive://1DVODaqkEAJa2jHrWnWotqmJs-5-ODb-B?usp=share_link
+    remote = mygdrive
+['remote "mygdrive"']
+    url = /home/yhchoi/gdrive/PROJECT/DATA/METADB
