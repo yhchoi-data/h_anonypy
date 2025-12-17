@@ -1,0 +1,4 @@
+[core]
+    remote = mygdrive
+['remote "mygdrive"']
+    url = /home/yhchoi/gdrive/PROJECT/DATA/METADB
