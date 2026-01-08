@@ -1,4 +1,4 @@
 [core]
-    remote = mygdrive
-['remote "mygdrive"']
-    url = /home/yhchoi/gdrive/PROJECT/DATA/METADB
+    remote = nas6_datateam
+['remote "nas6_datateam"']
+    url = /nas/nas6/DataTeam/STATUS
