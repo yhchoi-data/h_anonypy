@@ -1,17 +1,18 @@
-
 import os
 import pydicom
 from pydicom.errors import InvalidDicomError
 import random
 import string
+
 pydicom.config.convert_wrong_length_to_UN = True
 
 
 def replace_digits(match):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
 
 def get_folder_list(path):
-  """
+    """
   지정된 경로 내의 폴더 목록을 반환합니다.\
 
   Args:
@@ -20,52 +21,56 @@ def get_folder_list(path):
   Returns:
     폴더 이름 목록 (문자열 리스트).
   """
-  try:
-    items = os.listdir(path)
-    folder_list = [item for item in items if os.path.isdir(os.path.join(path, item))]
-    return folder_list
-  except FileNotFoundError:
-    print(f"Error: 경로를 찾을 수 없습니다: {path}")
-    return []
-  except Exception as e:
-    print(f"Error: {e}")
-    return []
+    try:
+        items = os.listdir(path)
+        folder_list = [
+            item for item in items if os.path.isdir(os.path.join(path, item))
+        ]
+        return folder_list
+    except FileNotFoundError:
+        print(f"Error: 경로를 찾을 수 없습니다: {path}")
+        return []
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
+
 
 def get_patient_info(dicom_file):
     ds = pydicom.dcmread(dicom_file)
-    ds.SpecificCharacterSet = 'ISO_IR 192'  # UTF-8
+    ds.SpecificCharacterSet = "ISO_IR 192"  # UTF-8
     # ds.SpecificCharacterSet = 'ISO_IR 149'  # EUC-KR
     ds.decode()
     info = {
-        'PatientID':    ds.get('PatientID'),
-        'PatientName':  str(ds.get('PatientName')),
-        'PatientSex':   ds.get('PatientSex'),
-        'PatientAge':   ds.get('PatientAge'),
-        'PatientBirthDate': ds.get('PatientBirthDate'),
-        'AcquisitionDate': ds.get('AcquisitionDate', 'No AcquisitionDate'),
-        'PatientSize': ds.get('PatientSize'),
-        'PatientWeight': ds.get('PatientWeight'),
-        'OtherPatientIDs': ds.get('OtherPatientIDs'),
-        'OtherPatientNames': str(ds.get('OtherPatientNames')),
-        'InstitutionName': ds.get('InstitutionName'),
-        'ReferringPhysicianName': str(ds.get('ReferringPhysicianName')),
-        'AccessionNumber': ds.get('AccessionNumber'),
-        'Modality': ds.get('Modality'),
-        'BodyPartExamined': ds.get('BodyPartExamined')
+        "PatientID": ds.get("PatientID"),
+        "PatientName": str(ds.get("PatientName")),
+        "PatientSex": ds.get("PatientSex"),
+        "PatientAge": ds.get("PatientAge"),
+        "PatientBirthDate": ds.get("PatientBirthDate"),
+        "AcquisitionDate": ds.get("AcquisitionDate", "No AcquisitionDate"),
+        "PatientSize": ds.get("PatientSize"),
+        "PatientWeight": ds.get("PatientWeight"),
+        "OtherPatientIDs": ds.get("OtherPatientIDs"),
+        "OtherPatientNames": str(ds.get("OtherPatientNames")),
+        "InstitutionName": ds.get("InstitutionName"),
+        "ReferringPhysicianName": str(ds.get("ReferringPhysicianName")),
+        "AccessionNumber": ds.get("AccessionNumber"),
+        "Modality": ds.get("Modality"),
+        "BodyPartExamined": ds.get("BodyPartExamined"),
     }
 
     return info
+
 
 def check_dicom_from_folder(root_dir, return_list=False):
 
     dcm_dir_list = []
     for dirpath, _, filenames in os.walk(root_dir):
         for file in filenames:
-            if file != "DICOMDIR" and not file.startswith('._'):
+            if file != "DICOMDIR" and not file.startswith("._"):
                 filepath = os.path.join(dirpath, file)
                 try:
-                    pydicom.dcmread(r'\\?\\' + filepath, stop_before_pixels=True)
-                    if return_list == True:
+                    pydicom.dcmread(r"\\?\\" + filepath, stop_before_pixels=True)
+                    if return_list:
                         dcm_dir_list.append(dirpath)
                         break
                     else:
@@ -74,10 +79,11 @@ def check_dicom_from_folder(root_dir, return_list=False):
                     continue
                 except Exception:
                     continue
-    if return_list == True:
+    if return_list:
         return dcm_dir_list
     else:
         return False
+
 
 def anonymize_dicom_file(raw_dir, dcm_fname, save_dir, id="00000"):
 
@@ -134,7 +140,7 @@ def anonymize_dicom_file(raw_dir, dcm_fname, save_dir, id="00000"):
 
         # 저장
         _, ext = os.path.splitext(dcm_fname)
-        if ext.lower() != ".dcm" :
+        if ext.lower() != ".dcm":
             dcm_fname = dcm_fname + ".dcm"
 
         ds.save_as(os.path.join(save_dir, dcm_fname))
