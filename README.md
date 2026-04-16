@@ -49,8 +49,10 @@ pip install -e . --no-build-isolation
 
 Example configs:
 
-- Video: [config.video.example.json](/disk1/users/da_cyh_0/PROJECT/DATA/anony/config.video.example.json)
-- DICOM: [config.dicom.example.json](/disk1/users/da_cyh_0/PROJECT/DATA/anony/config.dicom.example.json)
+- Video JSON: [video.example.json](/disk1/users/da_cyh_0/PROJECT/DATA/anony/configs/video.example.json)
+- Video YAML: [video.example.yaml](/disk1/users/da_cyh_0/PROJECT/DATA/anony/configs/video.example.yaml)
+- DICOM JSON: [dicom.example.json](/disk1/users/da_cyh_0/PROJECT/DATA/anony/configs/dicom.example.json)
+- DICOM YAML: [dicom.example.yaml](/disk1/users/da_cyh_0/PROJECT/DATA/anony/configs/dicom.example.yaml)
 
 Key fields:
 
@@ -116,19 +118,20 @@ dicom_dir/
 Run the video pipeline with a config file:
 
 ```bash
-python main.py config.video.example.json
+python main.py configs/video.example.json
 ```
 
 Run the DICOM pipeline with a config file:
 
 ```bash
-python main.py config.dicom.example.json
+python main.py configs/dicom.example.json
 ```
 
 You can also use YAML:
 
 ```bash
-python main.py config.yaml
+python main.py configs/video.example.yaml
+python main.py configs/dicom.example.yaml
 ```
 
 ## Pipeline Flow
