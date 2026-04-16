@@ -124,7 +124,9 @@ def stage_1_list_sample_folders(dataset_config):
     return pd.DataFrame(
         {
             "sample_name": sample_folders,
-            "sample_root": [os.path.join(dicom_dir, folder) for folder in sample_folders],
+            "sample_root": [
+                os.path.join(dicom_dir, folder) for folder in sample_folders
+            ],
         }
     )
 
@@ -143,7 +145,11 @@ def stage_2_extract_sample_metadata(sample_folders, dataset_config):
             try:
                 folder = str(Path(raw_folder).relative_to(organ_root))
             except ValueError:
-                folder = str(_relative_path_from_dataset_root(raw_folder, dataset_config["dicom_dir"]))
+                folder = str(
+                    _relative_path_from_dataset_root(
+                        raw_folder, dataset_config["dicom_dir"]
+                    )
+                )
 
             metadata["sample_name"] = row["sample_name"]
             metadata["sample_root"] = sample_root
@@ -232,7 +238,9 @@ def _find_existing_hutom_id(image_meta, sample_rows):
     patient_id_col = _find_patient_id_column(image_meta)
     patient_id = _normalize_key(sample_rows["PatientID"].iloc[0])
     if patient_id_col and patient_id:
-        matched = image_meta[image_meta[patient_id_col].map(_normalize_key) == patient_id]
+        matched = image_meta[
+            image_meta[patient_id_col].map(_normalize_key) == patient_id
+        ]
         if not matched.empty and "hutom_id" in matched.columns:
             return matched["hutom_id"].dropna().astype(str).iloc[0]
 
@@ -300,7 +308,9 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
         sample_paths = sample["folder"].tolist()
         hutom_ids = sample["hutom_id"].tolist()
 
-        for row_index, sample_path, hutom_id in zip(sample.index, sample_paths, hutom_ids):
+        for row_index, sample_path, hutom_id in zip(
+            sample.index, sample_paths, hutom_ids
+        ):
             posix = Path(sample_path)
             if dicom_dir_name not in posix.parts:
                 continue
@@ -326,7 +336,9 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
 
             for dirpath, _, filenames in os.walk(dcm_path):
                 for filename in sorted(filenames):
-                    anonymize_dicom_file(dirpath, filename, str(anony_path), id=hutom_id)
+                    anonymize_dicom_file(
+                        dirpath, filename, str(anony_path), id=hutom_id
+                    )
 
     return sample_info.drop(columns="_group_key"), jobs
 

@@ -11,9 +11,7 @@ def test_load_config_supports_json_and_yaml(tmp_path):
 
     json_path.write_text(json.dumps(payload), encoding="utf-8")
     yaml_path.write_text(
-        "pipeline: video\n"
-        "datasets:\n"
-        "  - video_dir: /tmp/video\n",
+        "pipeline: video\n" "datasets:\n" "  - video_dir: /tmp/video\n",
         encoding="utf-8",
     )
 
@@ -26,7 +24,14 @@ def test_normalize_dicom_config_applies_defaults():
         {
             "image_meta_fname": "IMAGE_META.xlsx",
             "id_fname": "HID_ALL.xlsx",
-            "datasets": [{"dicom_dir": "/tmp/dicom", "center": "A", "importdate": "20260416", "organ": "LIVER"}],
+            "datasets": [
+                {
+                    "dicom_dir": "/tmp/dicom",
+                    "center": "A",
+                    "importdate": "20260416",
+                    "organ": "LIVER",
+                }
+            ],
         }
     )
 
