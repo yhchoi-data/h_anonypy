@@ -37,7 +37,16 @@ def test_stage_4_assign_ids_reuses_existing_hutom_id_from_series_uid():
 
 def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
     dicom_dir = tmp_path / "LIVER" / "incoming" / "Liver_Dicom"
-    raw_folder = dicom_dir / "patient_a" / "DATA" / "20250725" / "092454" / "7866398" / "EX1" / "SE1"
+    raw_folder = (
+        dicom_dir
+        / "patient_a"
+        / "DATA"
+        / "20250725"
+        / "092454"
+        / "7866398"
+        / "EX1"
+        / "SE1"
+    )
     raw_folder.mkdir(parents=True)
     (raw_folder / "IMG0001").write_text("dummy", encoding="utf-8")
 
@@ -63,7 +72,17 @@ def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
         run_anonymization=False,
     )
 
-    expected_folder = dicom_dir / "ANONYMOUS" / "LIVER0001" / "DATA" / "20250725" / "092454" / "7866398" / "EX1" / "SE1"
+    expected_folder = (
+        dicom_dir
+        / "ANONYMOUS"
+        / "LIVER0001"
+        / "DATA"
+        / "20250725"
+        / "092454"
+        / "7866398"
+        / "EX1"
+        / "SE1"
+    )
     assert Path(result.loc[0, "anony_folder"]) == expected_folder
     assert jobs[0]["raw_folder"] == str(raw_folder)
     assert not list(expected_folder.iterdir())
