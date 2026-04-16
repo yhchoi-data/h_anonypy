@@ -1,4 +1,4 @@
 [core]
     remote = nas6_datateam
 ['remote "nas6_datateam"']
-    url = /nas/nas6/DataTeam/STATUS
+    url = ssh://da_cyh_0@192.168.16.60/nas/nas6/DataTeam/METADB
