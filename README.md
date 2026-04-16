@@ -139,7 +139,7 @@ python main.py configs/dicom.example.yaml
 Video pipeline:
 
 1. Load shared metadata files
-2. Extract base information from raw video files
+2. Extract base information from raw video files and assign `hutom_id` values after checking for duplicates
 3. Extract video metadata and capture frames
 4. Prepare anonymization outputs and save preview metadata
 5. Run anonymization
