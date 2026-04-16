@@ -144,7 +144,6 @@ def stage_1_extract_base_info(dataset_config):
             "duration",
             "split",
             "capture_mode",
-            "frames",
             "ch_name",
             "sourcedata_path",
             "sourcedata_filename",
@@ -201,7 +200,6 @@ def stage_2_extract_metadata(video_info, dataset_config, video_meta, next_id, n_
                 filepath, dataset_config["video_dir"], save_dir
             )
             video_info.loc[row_index, "split"] = check_split_screen(frames)
-            video_info.at[row_index, "frames"] = frames
 
         ch_name_map = assign_stereo_ch_names(video_info.loc[check_idx])
         for row_index, ch_name in ch_name_map.items():

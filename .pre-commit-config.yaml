@@ -20,3 +20,11 @@ repos:
     hooks:
       - id: black
         language_version: python3.11
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest -q tests
+        language: system
+        pass_filenames: false

@@ -1,8 +1,12 @@
 import os
-import pydicom
-from pydicom.errors import InvalidDicomError
 import random
 import string
+import re
+from pathlib import Path
+from collections import defaultdict
+import pydicom
+from pydicom.errors import InvalidDicomError
+
 
 pydicom.config.convert_wrong_length_to_UN = True
 
@@ -24,7 +28,9 @@ def get_folder_list(path):
     try:
         items = os.listdir(path)
         folder_list = [
-            item for item in items if os.path.isdir(os.path.join(path, item))
+            item
+            for item in items
+            if os.path.isdir(os.path.join(path, item)) and item != "ANONYMOUS"
         ]
         return folder_list
     except FileNotFoundError:
@@ -47,6 +53,10 @@ def get_patient_info(dicom_file):
         "PatientAge": ds.get("PatientAge"),
         "PatientBirthDate": ds.get("PatientBirthDate"),
         "AcquisitionDate": ds.get("AcquisitionDate", "No AcquisitionDate"),
+        "StudyDate": ds.get("StudyDate"),
+        "SeriesDate": ds.get("SeriesDate"),
+        "StudyTime": ds.get("StudyTime"),
+        "SeriesTime": ds.get("SeriesTime"),
         "PatientSize": ds.get("PatientSize"),
         "PatientWeight": ds.get("PatientWeight"),
         "OtherPatientIDs": ds.get("OtherPatientIDs"),
@@ -56,33 +66,113 @@ def get_patient_info(dicom_file):
         "AccessionNumber": ds.get("AccessionNumber"),
         "Modality": ds.get("Modality"),
         "BodyPartExamined": ds.get("BodyPartExamined"),
+        "StudyInstanceUID": ds.get("StudyInstanceUID"),
+        "SeriesInstanceUID": ds.get("SeriesInstanceUID"),
+        "SOPInstanceUID": ds.get("SOPInstanceUID"),
+        "StudyDescription": ds.get("StudyDescription"),
+        "SeriesDescription": ds.get("SeriesDescription"),
+        "SeriesNumber": ds.get("SeriesNumber"),
+        "InstanceNumber": ds.get("InstanceNumber"),
+        "Rows": ds.get("Rows"),
+        "Columns": ds.get("Columns"),
+        "PixelSpacing": ds.get("PixelSpacing"),
+        "SliceThickness": ds.get("SliceThickness"),
     }
 
     return info
 
 
 def check_dicom_from_folder(root_dir, return_list=False):
+    """
+    하위 폴더를 모두 탐색하여 DICOM 존재 여부를 확인한다.
 
+    Args:
+        root_dir: 탐색을 시작할 루트 폴더
+        return_list: True이면 DICOM 파일이 하나 이상 존재하는 폴더 목록 반환,
+            False이면 첫 번째로 찾은 DICOM 파일 경로 반환
+
+    Returns:
+        return_list=True: DICOM이 존재하는 폴더 경로 리스트
+        return_list=False: 첫 번째 DICOM 파일 경로, 없으면 False
+    """
     dcm_dir_list = []
+
     for dirpath, _, filenames in os.walk(root_dir):
+        has_dicom = False
         for file in filenames:
-            if file != "DICOMDIR" and not file.startswith("._"):
-                filepath = os.path.join(dirpath, file)
-                try:
-                    pydicom.dcmread(r"\\?\\" + filepath, stop_before_pixels=True)
-                    if return_list:
-                        dcm_dir_list.append(dirpath)
-                        break
-                    else:
-                        return filepath
-                except InvalidDicomError:
-                    continue
-                except Exception:
-                    continue
+            if file == "DICOMDIR" or file.startswith("._"):
+                continue
+
+            filepath = os.path.join(dirpath, file)
+            try:
+                pydicom.dcmread(filepath, stop_before_pixels=True)
+                has_dicom = True
+                if not return_list:
+                    return filepath
+                break
+            except InvalidDicomError:
+                continue
+            except Exception:
+                continue
+
+        if return_list and has_dicom:
+            dcm_dir_list.append(dirpath)
+
     if return_list:
         return dcm_dir_list
-    else:
-        return False
+    return False
+
+
+def normalize_dicom_filename(filename):
+    stem = Path(filename).stem
+
+    # 끝쪽 숫자 시퀀스 제거
+    stem = re.sub(r"[_-]?\d+$", "", stem)
+
+    return stem
+
+
+def group_files_by_filename(root_folder):
+    groups = defaultdict(list)
+
+    for dirpath, _, filenames in os.walk(root_folder):
+        for fname in filenames:
+            if fname == "DICOMDIR" or fname.startswith("._"):
+                continue
+
+            key = normalize_dicom_filename(fname)
+            filepath = os.path.join(dirpath, fname)
+            groups[key].append(filepath)
+
+    return dict(groups)
+
+
+def get_representative_files_from_dicom_folders(root_folder):
+    rep_files = []
+
+    for dirpath, _, filenames in os.walk(root_folder):
+        has_dicom = False
+
+        for fname in filenames:
+            if fname == "DICOMDIR" or fname.startswith("._"):
+                continue
+
+            filepath = os.path.join(dirpath, fname)
+            try:
+                pydicom.dcmread(filepath, stop_before_pixels=True)
+                has_dicom = True
+                break
+            except InvalidDicomError:
+                continue
+            except Exception:
+                continue
+
+        if has_dicom:
+            groups = group_files_by_filename(dirpath)
+            rep_files += [sorted(files)[0] for files in groups.values()]
+            # dicom_folders.append(dirpath)
+
+    return rep_files
 
 
 def anonymize_dicom_file(raw_dir, dcm_fname, save_dir, id="00000"):
