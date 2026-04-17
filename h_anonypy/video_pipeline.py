@@ -82,9 +82,11 @@ def normalize_config(config):
         "video_meta_fname": config["video_meta_fname"],
         "id_fname": config["id_fname"],
         "n_digits": config.get("n_digits", 4),
+        "run_anonymization": config.get("run_anonymization", True),
         "recodec": config.get("recodec", True),
         "verbose": config.get("verbose", True),
         "ffmpeg_cmd": config.get("ffmpeg_cmd", DEFAULT_FFMPEG_CMD.copy()),
+        "video_meta_columns": config.get("video_meta_columns"),
         "datasets": datasets,
     }
 
@@ -110,6 +112,51 @@ def get_next_hutom_id(hids_all, organ, n_digits):
     if not nums:
         return 1
     return np.sort(nums)[-1] + 1
+
+
+def build_rawdata_path(filepath):
+    path = PurePath(filepath)
+    directory = PurePath(*path.parts[:-1])
+    path_str = str(directory)
+    return path_str.replace("/nas/nas6/DataTeam", "/Volume/RawData", 1)
+
+
+DB_FORMAT_COLUMN_MAP = {
+    "hutom id": "hutom_id",
+    "patient id": "patient_id",
+    "rawdata_filepath": "rawdata_path",
+    "rawdata_filename": "rawdata_filename",
+    "sourcedata_filepath": "sourcedata_path",
+    "sourcedata_filename": "sourcedata_filename",
+    "size(bytes)": "size(bytes)",
+    "hash": "hash",
+    "width": "width",
+    "height": "height",
+    "codec_name": "codec_name",
+    "fps": "fps",
+    "nb_frames": "nb_frames",
+    "duration": "duration",
+}
+
+
+def save_db_format_export(video_info, dataset_config, video_meta_columns):
+    if not video_meta_columns:
+        return None
+
+    export_data = {}
+    for target_col in video_meta_columns:
+        source_col = DB_FORMAT_COLUMN_MAP.get(target_col, target_col)
+        export_data[target_col] = (
+            video_info[source_col] if source_col in video_info.columns else None
+        )
+
+    export_df = pd.DataFrame(export_data)
+    export_path = os.path.join(
+        dataset_config["video_dir"],
+        f"DB_FORMAT_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx",
+    )
+    export_df.to_excel(export_path, index=False)
+    return export_path
 
 
 def build_video_info(video_dir):
@@ -218,13 +265,16 @@ def stage_2_extract_metadata(video_info, dataset_config, video_meta, next_id, n_
     return video_info, next_id
 
 
-def stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd):
+def stage_3_prepare_anonymization(
+    video_info, dataset_config, ffmpeg_cmd, video_meta_columns=None
+):
     jobs = []
 
     for row_index in video_info.index:
         filepath = video_info.loc[row_index, "filepath"]
         hutomid = video_info.loc[row_index, "hutom_id"]
-        anonyid = f"{video_info.loc[row_index, 'ch_name']}.mp4"
+        ch_name = video_info.loc[row_index, "ch_name"]
+        anonyid = f"{hutomid}_{ch_name}.mp4"
         anony_folder = os.path.join(dataset_config["video_dir"], "ANONYMOUS", hutomid)
         anony_filename = os.path.join(anony_folder, anonyid)
 
@@ -248,7 +298,6 @@ def stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd):
             dataset_config["organ"],
             "VIDEO",
             hutomid,
-            anonyid,
         )
         video_info.loc[row_index, "sourcedata_filename"] = anonyid
         video_info.loc[row_index, "anony_filepath"] = str(
@@ -256,11 +305,7 @@ def stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd):
         )
 
     video_info = video_info.copy()
-    video_info["RAW_PATH"] = video_info["filepath"].apply(
-        lambda value: str(PurePath(*PurePath(value).parts[2:]))
-    )
-    video_info["SOURCE_PATH"] = video_info["anony_filepath"]
-    video_info["Hash"] = video_info["hash"]
+    video_info["rawdata_path"] = video_info["filepath"].apply(build_rawdata_path)
     video_info["Center"] = dataset_config["center"]
     video_info["ImportDate"] = dataset_config["importdate"]
 
@@ -269,6 +314,7 @@ def stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd):
         f"VIDEO_MATA_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx",
     )
     video_info.to_excel(preview_path, index=False)
+    save_db_format_export(video_info, dataset_config, video_meta_columns)
 
     return video_info, jobs
 
@@ -311,10 +357,12 @@ def process_dataset(dataset_config, shared_data, global_config):
         video_info,
         dataset_config,
         global_config["ffmpeg_cmd"],
+        global_config["video_meta_columns"],
     )
 
     log("[4] running anonymization", global_config["verbose"])
-    stage_4_run_anonymization(jobs, global_config["recodec"])
+    if global_config["run_anonymization"]:
+        stage_4_run_anonymization(jobs, global_config["recodec"])
 
     return video_info
 

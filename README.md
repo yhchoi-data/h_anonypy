@@ -61,8 +61,8 @@ Key fields:
 - `image_meta_fname`: path to the DICOM metadata Excel file
 - `id_fname`: path to the HUTOM ID Excel file
 - `n_digits`: zero-padding width for generated IDs
-- `recodec`: if `true`, run `ffmpeg`; if `false`, copy files instead
-- `run_anonymization`: if `true`, anonymize DICOM files; if `false`, only build metadata and jobs
+- `run_anonymization`: if `true`, run anonymization; if `false`, only build metadata and jobs
+- `recodec`: video only. If `run_anonymization` is `true`, run `ffmpeg` when `true`, or copy files when `false`
 - `verbose`: print pipeline progress when `true`
 - `datasets`: list of dataset jobs to process
 
