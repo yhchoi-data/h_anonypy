@@ -1,7 +1,6 @@
 /SHEET
 *.ipynb
 /data
-/DB
 *.xlsx
 *.csv
 __pycache__/

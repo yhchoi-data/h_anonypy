@@ -1,15 +1,28 @@
 {
   "pipeline": "dicom",
-  "image_meta_fname": "/disk1/users/da_cyh_0/PROJECT/DATA/anony/DB/IMAGE_META.xlsx",
-  "id_fname": "/disk1/users/da_cyh_0/PROJECT/DATA/anony/DB/HID_ALL.xlsx",
+  "metadata_source": {
+    "type": "db",
+    "db": {
+      "driver": "postgresql+psycopg2",
+      "user": null,
+      "password": null,
+      "host": null,
+      "port": null,
+      "database": null
+    },
+    "tables": {
+      "image_meta": null,
+      "hids_all": null
+    }
+  },
   "n_digits": 4,
   "run_anonymization": true,
   "verbose": true,
   "datasets": [
     {
-      "dicom_dir": "/nas/nas6/DataTeam/LIVER/20250731_[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/Liver_Dicom",
+      "dicom_dir": "/nas/nas6/DataTeam/LIVER/20260422",
       "center": "신촌세브란스병원",
-      "importdate": "20250731",
+      "importdate": "20250410",
       "organ": "LIVER"
     }
   ]

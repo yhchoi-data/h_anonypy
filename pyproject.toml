@@ -13,8 +13,10 @@ dependencies = [
     "opencv-python",
     "openpyxl",
     "pandas",
+    "psycopg2-binary",
     "pyyaml",
     "pydicom",
+    "sqlalchemy",
 ]
 
 [project.optional-dependencies]

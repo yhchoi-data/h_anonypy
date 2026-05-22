@@ -12,6 +12,7 @@ from .modules_dicom import (
     get_patient_info,
     get_representative_files_from_dicom_folders,
 )
+from .metadata_source import load_shared_metadata, normalize_metadata_source
 
 
 def load_dicom_config(config_path):
@@ -39,8 +40,7 @@ def normalize_dicom_config(config):
         raise ValueError("Config must include a non-empty 'datasets' list.")
 
     return {
-        "image_meta_fname": config["image_meta_fname"],
-        "id_fname": config["id_fname"],
+        "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
         "run_anonymization": config.get("run_anonymization", True),
         "verbose": config.get("verbose", True),
@@ -112,10 +112,14 @@ def _get_organ_root(dicom_dir, organ):
 
 
 def stage_0_load_data(config):
-    return {
-        "image_meta": pd.read_excel(config["image_meta_fname"]),
-        "hids_all": pd.read_excel(config["id_fname"]),
-    }
+    return load_shared_metadata(
+        config,
+        [
+            ("image_meta", "image_meta"),
+            ("hids_all", "hids_all"),
+        ],
+        verbose=config.get("verbose", False),
+    )
 
 
 def stage_1_list_sample_folders(dataset_config):

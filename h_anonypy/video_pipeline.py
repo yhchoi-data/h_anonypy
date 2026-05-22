@@ -18,6 +18,7 @@ from .modules_video import (
     get_video_metadata_opencv,
     infer_capture_mode,
 )
+from .metadata_source import load_shared_metadata, normalize_metadata_source
 
 
 DEFAULT_FFMPEG_CMD = [
@@ -79,8 +80,7 @@ def normalize_config(config):
         raise ValueError("Config must include a non-empty 'datasets' list.")
 
     return {
-        "video_meta_fname": config["video_meta_fname"],
-        "id_fname": config["id_fname"],
+        "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
         "run_anonymization": config.get("run_anonymization", True),
         "recodec": config.get("recodec", True),
@@ -172,10 +172,14 @@ def build_video_info(video_dir):
 
 
 def stage_0_load_data(config):
-    return {
-        "video_meta": pd.read_excel(config["video_meta_fname"]),
-        "hids_all": pd.read_excel(config["id_fname"]),
-    }
+    return load_shared_metadata(
+        config,
+        [
+            ("video_meta", "video_meta"),
+            ("hids_all", "hids_all"),
+        ],
+        verbose=config.get("verbose", False),
+    )
 
 
 def stage_1_extract_base_info(dataset_config):
