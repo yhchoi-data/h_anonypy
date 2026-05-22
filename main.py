@@ -15,9 +15,13 @@ def infer_pipeline_type(config):
     if pipeline_type:
         return str(pipeline_type).strip().lower()
 
-    if "video_meta_fname" in config:
+    metadata_source = config.get("metadata_source") or {}
+    tables = config.get("tables") or {}
+    if isinstance(metadata_source, dict):
+        tables = metadata_source.get("tables") or tables
+    if any(key in tables for key in ["video_meta", "VIDEO_META"]):
         return "video"
-    if "image_meta_fname" in config:
+    if any(key in tables for key in ["image_meta", "IMAGE_META"]):
         return "dicom"
 
     raise ValueError(

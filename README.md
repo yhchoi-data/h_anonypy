@@ -2,36 +2,21 @@
 
 Utilities and pipelines for anonymizing medical video and DICOM data.
 
-## Before Running
+## Setup
 
-Before using DVC-managed files, update them to match the latest table version from `HUTOM_DB_SERVER`.
+Metadata tables are loaded directly from the DB. No local metadata files are required.
+When running from this repository, editable installation is not required just to use
+`main.py`.
 
-Set the DVC remote first if your environment uses the SSH storage.
-
-Current example:
-
-```ini
-[core]
-    remote = nas6_datateam
-['remote "nas6_datateam"']
-    url = ssh://da_cyh_0@192.168.16.60/nas/nas6/DataTeam/METADB
-```
-
-If your SSH user is different, change `da_cyh_0` to your account and then download the dataset.
-
-```bash
-cd h_anonypy/
-dvc pull
-```
-
-If you are using a fresh environment, install the package in editable mode.
+If Python dependencies are missing in your environment, install the package
+dependencies with:
 
 ```bash
 pip install -e .
 ```
 
-For development tools such as `pytest`, `pre-commit`, `ruff`, and `black`, install the
-`dev` extra:
+For development tools such as `pytest`, `pre-commit`, `ruff`, and `black`, install
+the `dev` extra:
 
 ```bash
 pip install -e ".[dev]"
@@ -42,6 +27,12 @@ If your environment is offline or build isolation causes installation issues, tr
 ```bash
 pip install -e . --no-build-isolation
 ```
+
+DB credentials and table names can be left as `null` in the config. The CLI will
+ask for them at runtime; passwords are entered with hidden input.
+
+> **Important:** Before using these variables, you must ask the administrator for
+> the correct DB connection settings and table names.
 
 ## Config
 
@@ -57,14 +48,32 @@ Example configs:
 Key fields:
 
 - `pipeline`: `video` or `dicom`
-- `video_meta_fname`: path to the video metadata Excel file
-- `image_meta_fname`: path to the DICOM metadata Excel file
-- `id_fname`: path to the HUTOM ID Excel file
+- `metadata_source`: required. Metadata is loaded from configured DB tables.
 - `n_digits`: zero-padding width for generated IDs
 - `run_anonymization`: if `true`, run anonymization; if `false`, only build metadata and jobs
 - `recodec`: video only. If `run_anonymization` is `true`, run `ffmpeg` when `true`, or copy files when `false`
 - `verbose`: print pipeline progress when `true`
 - `datasets`: list of dataset jobs to process
+
+DB metadata config example:
+
+```yaml
+metadata_source:
+  type: db
+  db:
+    driver: postgresql+psycopg2
+    user: null
+    password: null
+    host: null
+    port: null
+    database: null
+  tables:
+    video_meta: null
+    image_meta: null
+    hids_all: null
+```
+
+You can use `password_env` instead of `password` to read the DB password from an environment variable. Video configs need `video_meta` and `hids_all`; DICOM configs need `image_meta` and `hids_all`. `db` and `tables` can also be placed at the top level if you prefer a flatter config.
 
 ## Input Layout
 
@@ -138,7 +147,7 @@ python main.py configs/dicom.example.yaml
 
 Video pipeline:
 
-1. Load shared metadata files
+1. Load shared metadata tables from the DB
 2. Extract base information from raw video files and assign `hutom_id` values after checking for duplicates
 3. Extract video metadata and capture frames
 4. Prepare anonymization outputs and save preview metadata
@@ -146,7 +155,7 @@ Video pipeline:
 
 DICOM pipeline:
 
-1. Load shared metadata files
+1. Load shared metadata tables from the DB
 2. List sample folders in the input directory
 3. Extract representative DICOM metadata for each sample
 4. Check duplicates and assign `hutom_id`
