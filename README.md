@@ -8,24 +8,24 @@ Metadata tables are loaded directly from the DB. No local metadata files are req
 When running from this repository, editable installation is not required just to use
 `main.py`.
 
-If Python dependencies are missing in your environment, install the package
-dependencies with:
+This repository is managed with `uv`. From this directory, create/update the
+virtual environment and install runtime plus development dependencies with:
 
 ```bash
-pip install -e .
+uv sync --extra dev
 ```
 
-For development tools such as `pytest`, `pre-commit`, `ruff`, and `black`, install
-the `dev` extra:
+Run commands inside the managed environment with `uv run`:
 
 ```bash
-pip install -e ".[dev]"
+uv run pytest -q tests
+uv run pre-commit run --all-files
 ```
 
-If your environment is offline or build isolation causes installation issues, try:
+If you only need runtime dependencies, omit the development extra:
 
 ```bash
-pip install -e . --no-build-isolation
+uv sync
 ```
 
 DB credentials and table names can be left as `null` in the config. The CLI will
@@ -127,20 +127,20 @@ dicom_dir/
 Run the video pipeline with a config file:
 
 ```bash
-python main.py configs/video.example.json
+uv run python main.py configs/video.example.json
 ```
 
 Run the DICOM pipeline with a config file:
 
 ```bash
-python main.py configs/dicom.example.json
+uv run python main.py configs/dicom.example.json
 ```
 
 You can also use YAML:
 
 ```bash
-python main.py configs/video.example.yaml
-python main.py configs/dicom.example.yaml
+uv run python main.py configs/video.example.yaml
+uv run python main.py configs/dicom.example.yaml
 ```
 
 ## Pipeline Flow
