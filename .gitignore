@@ -1,8 +1,10 @@
 /SHEET
+.venv/
 *.ipynb
 /data
 *.xlsx
 *.csv
 __pycache__/
 *.pyc
+*.egg-info/
 .ipynb_checkpoints/
