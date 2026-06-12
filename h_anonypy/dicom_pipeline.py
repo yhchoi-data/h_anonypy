@@ -64,6 +64,51 @@ def get_next_hutom_id(hids_all, organ, n_digits):
     return np.sort(nums)[-1] + 1
 
 
+def resolve_start_id(dataset_config, db_next_id):
+    start_id = dataset_config.get("start_id")
+    if start_id is None:
+        return db_next_id
+
+    try:
+        start_id = int(start_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dataset start_id must be a positive integer.") from exc
+
+    if start_id < 1:
+        raise ValueError("dataset start_id must be a positive integer.")
+    return start_id
+
+
+def get_dataset_dicom_dirs(dicom_dir):
+    if isinstance(dicom_dir, (str, os.PathLike)):
+        return [str(dicom_dir)]
+    if isinstance(dicom_dir, (list, tuple)):
+        if not dicom_dir:
+            raise ValueError("dataset dicom_dir list must not be empty.")
+        return [str(path) for path in dicom_dir]
+    raise TypeError(
+        "dataset dicom_dir must be a path string or a list of path strings."
+    )
+
+
+def get_dataset_output_dir(dataset_config):
+    if dataset_config.get("output_dir"):
+        return dataset_config["output_dir"]
+
+    dicom_dirs = get_dataset_dicom_dirs(dataset_config["dicom_dir"])
+    if len(dicom_dirs) == 1:
+        return dicom_dirs[0]
+    return os.path.commonpath(dicom_dirs)
+
+
+def get_row_dicom_root(sample_info, row_index, dataset_config):
+    if "dicom_root" in sample_info.columns:
+        dicom_root = sample_info.loc[row_index, "dicom_root"]
+        if not pd.isna(dicom_root):
+            return str(dicom_root)
+    return get_dataset_dicom_dirs(dataset_config["dicom_dir"])[0]
+
+
 def _normalize_key(value):
     if value is None:
         return None
@@ -84,6 +129,20 @@ def _find_patient_id_column(image_meta):
         if col in image_meta.columns:
             return col
     return None
+
+
+def _build_sample_group_key(row):
+    patient_id = _normalize_key(row.get("PatientID"))
+    if patient_id:
+        return patient_id
+
+    sample_name = _normalize_key(row.get("sample_name")) or row.name
+    sample_root = _normalize_key(row.get("sample_root"))
+    dicom_root = _normalize_key(row.get("dicom_root"))
+    root_key = sample_root or dicom_root
+    if root_key:
+        return f"sample::{root_key}::{sample_name}"
+    return f"sample::{sample_name}"
 
 
 def _relative_path_from_dataset_root(path_value, dataset_root):
@@ -123,24 +182,31 @@ def stage_0_load_data(config):
 
 
 def stage_1_list_sample_folders(dataset_config):
-    dicom_dir = dataset_config["dicom_dir"]
-    sample_folders = get_folder_list(dicom_dir)
-    return pd.DataFrame(
-        {
-            "sample_name": sample_folders,
-            "sample_root": [
-                os.path.join(dicom_dir, folder) for folder in sample_folders
-            ],
-        }
+    records = []
+    for dicom_dir in get_dataset_dicom_dirs(dataset_config["dicom_dir"]):
+        sample_folders = get_folder_list(dicom_dir)
+        for folder in sample_folders:
+            records.append(
+                {
+                    "sample_name": folder,
+                    "sample_root": os.path.join(dicom_dir, folder),
+                    "dicom_root": dicom_dir,
+                }
+            )
+    return pd.DataFrame.from_records(
+        records, columns=["sample_name", "sample_root", "dicom_root"]
     )
 
 
 def stage_2_extract_sample_metadata(sample_folders, dataset_config):
     records = []
-    organ_root = _get_organ_root(dataset_config["dicom_dir"], dataset_config["organ"])
 
     for _, row in sample_folders.iterrows():
         sample_root = row["sample_root"]
+        dicom_root = row.get("dicom_root")
+        if dicom_root is None or pd.isna(dicom_root):
+            dicom_root = get_dataset_dicom_dirs(dataset_config["dicom_dir"])[0]
+        organ_root = _get_organ_root(dicom_root, dataset_config["organ"])
         rep_files = get_representative_files_from_dicom_folders(sample_root)
 
         for dicom_file in rep_files:
@@ -149,14 +215,11 @@ def stage_2_extract_sample_metadata(sample_folders, dataset_config):
             try:
                 folder = str(Path(raw_folder).relative_to(organ_root))
             except ValueError:
-                folder = str(
-                    _relative_path_from_dataset_root(
-                        raw_folder, dataset_config["dicom_dir"]
-                    )
-                )
+                folder = str(_relative_path_from_dataset_root(raw_folder, dicom_root))
 
             metadata["sample_name"] = row["sample_name"]
             metadata["sample_root"] = sample_root
+            metadata["dicom_root"] = dicom_root
             metadata["raw_folder"] = raw_folder
             metadata["folder"] = folder
             metadata["representative_dicom"] = dicom_file
@@ -218,6 +281,7 @@ def stage_3_prepare_full_metadata(sample_info, dataset_config):
         "representative_dicom",
         "sample_name",
         "sample_root",
+        "dicom_root",
     ]
     existing_cols = [col for col in ordered_cols if col in sample_info.columns]
     remaining_cols = [col for col in sample_info.columns if col not in existing_cols]
@@ -256,12 +320,9 @@ def stage_4_assign_ids(sample_info, image_meta, hids_all, dataset_config, n_digi
     if sample_info.empty:
         return sample_info
 
-    next_id = get_next_hutom_id(hids_all, dataset_config["organ"], n_digits)
-    sample_info["_group_key"] = sample_info.apply(
-        lambda row: _normalize_key(row["PatientID"])
-        or f"sample::{_normalize_key(row['sample_name']) or row.name}",
-        axis=1,
-    )
+    db_next_id = get_next_hutom_id(hids_all, dataset_config["organ"], n_digits)
+    next_id = resolve_start_id(dataset_config, db_next_id)
+    sample_info["_group_key"] = sample_info.apply(_build_sample_group_key, axis=1)
     group_keys = sample_info["_group_key"].dropna().unique().tolist()
 
     for group_key in group_keys:
@@ -280,8 +341,10 @@ def stage_4_assign_ids(sample_info, image_meta, hids_all, dataset_config, n_digi
 
 
 def save_dicom_preview_metadata(sample_info, dataset_config):
+    output_dir = get_dataset_output_dir(dataset_config)
+    os.makedirs(output_dir, exist_ok=True)
     preview_path = os.path.join(
-        dataset_config["dicom_dir"],
+        output_dir,
         f"DICOM_META_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx",
     )
     sample_info.to_excel(preview_path, index=False)
@@ -291,20 +354,13 @@ def save_dicom_preview_metadata(sample_info, dataset_config):
 def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
     jobs = []
     sample_info = sample_info.copy()
-    save_dir = Path(dataset_config["dicom_dir"]) / "ANONYMOUS"
-    dicom_dir_name = Path(dataset_config["dicom_dir"]).name
-    organ_root = _get_organ_root(dataset_config["dicom_dir"], dataset_config["organ"])
 
     if sample_info.empty:
         sample_info["anony_folder"] = pd.Series(dtype="object")
         return sample_info, jobs
 
     sample_info["anony_folder"] = None
-    sample_info["_group_key"] = sample_info.apply(
-        lambda row: _normalize_key(row["PatientID"])
-        or f"sample::{_normalize_key(row['sample_name']) or row.name}",
-        axis=1,
-    )
+    sample_info["_group_key"] = sample_info.apply(_build_sample_group_key, axis=1)
     group_keys = sample_info["_group_key"].dropna().unique().tolist()
 
     for group_key in group_keys:
@@ -315,6 +371,10 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
         for row_index, sample_path, hutom_id in zip(
             sample.index, sample_paths, hutom_ids
         ):
+            dicom_root = get_row_dicom_root(sample_info, row_index, dataset_config)
+            save_dir = Path(dicom_root) / "ANONYMOUS"
+            dicom_dir_name = Path(dicom_root).name
+            organ_root = _get_organ_root(dicom_root, dataset_config["organ"])
             posix = Path(sample_path)
             if dicom_dir_name not in posix.parts:
                 continue

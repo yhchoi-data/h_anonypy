@@ -340,11 +340,11 @@ def get_video_infomation(base_path):
         filepath = file_list[j]
         filefolder = Path(folder_list[j])
         filename = ntpath.basename(filepath)
+        meta.loc[j, "patient_id"] = Path(filepath).relative_to(Path(base_path)).parts[0]
         if Path(filefolder).parts[-1] == "Videos":
-            meta.loc[j, "patient_id"] = Path(filefolder).parts[-2]
+            meta.loc[j, "patient_name"] = Path(filefolder).parts[-2]
         else:
-            meta.loc[j, "patient_id"] = Path(filefolder).parts[-1]
-        meta.loc[j, "patient_name"] = extract_base(filename)
+            meta.loc[j, "patient_name"] = Path(filefolder).parts[-1]
         meta.loc[j, "format"] = os.path.splitext(filename)[1][1:]
 
     return meta
@@ -361,18 +361,14 @@ def check_patient_ids(meta_info, base_dir, id_path_index):
         filepath = filelist[i]
 
         path = Path(filepath)
-        parts = path.parts
-        patient_name = Path(parts[id_path_index]).stem
-
-        video_info.loc[i, "patient_name"] = patient_name
         video_info.loc[i, "rawdata_filename"] = path.name
 
     video_info["rawdata_path"] = video_info["rawdata_path"].str.replace(
         base_dir, "/Volumes/RawData/", regex=False
     )
-    video_info = video_info.sort_values(
-        ["patient_name", "rawdata_filename"]
-    ).reset_index(drop=True)
+    video_info = video_info.sort_values(["patient_id", "rawdata_filename"]).reset_index(
+        drop=True
+    )
 
     return video_info
 
@@ -392,9 +388,201 @@ def safe_capture_last_frame(cap, duration_sec, max_shift=1.0, step=0.1):
     return None, None  # 모든 시도 실패
 
 
-def capture_key_frames_by_video(filepath, basepath, savepath, save=True):
+def get_video_duration_sec(video_path):
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    cap.release()
+
+    if fps and total_frames and fps > 0 and total_frames > 0:
+        return total_frames / fps
+
+    try:
+        meta = get_video_metadata_ffprobe(video_path)
+    except Exception:
+        return 0
+
+    streams = meta.get("streams") or []
+    video_stream = next(
+        (stream for stream in streams if stream.get("codec_type") == "video"),
+        streams[0] if streams else {},
+    )
+    duration = video_stream.get("duration") or meta.get("format", {}).get("duration")
+    if duration:
+        return float(duration)
+    return 0
+
+
+def capture_frame_by_ffmpeg(
+    filepath,
+    timestamp_sec,
+    deinterlace=False,
+    ffmpeg="ffmpeg",
+    timeout=30,
+    accurate_seek=False,
+):
+    exe_path = shutil.which(ffmpeg)
+    if exe_path is None:
+        raise FileNotFoundError(
+            "ffmpeg를 찾을 수 없습니다. PATH를 설정하거나 ffmpeg의 절대경로를 전달하세요."
+        )
+
+    cmd = [
+        exe_path,
+        "-v",
+        "error",
+    ]
+    seek_args = ["-ss", f"{max(timestamp_sec, 0):.3f}"]
+    if not accurate_seek:
+        cmd.extend(seek_args)
+    cmd.extend(["-i", filepath])
+    if accurate_seek:
+        cmd.extend(seek_args)
+    cmd.extend(["-map", "0:v:0"])
+    if deinterlace:
+        cmd.extend(["-vf", "yadif=mode=send_frame:parity=auto:deint=interlaced"])
+    cmd.extend(
+        [
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "png",
+            "pipe:1",
+        ]
+    )
+
+    res = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+    )
+    if res.returncode != 0 or not res.stdout:
+        return None
+
+    img_array = np.frombuffer(res.stdout, dtype=np.uint8)
+    return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+
+def _clamp_timestamp(timestamp_sec, duration_sec=None):
+    t = max(timestamp_sec, 0)
+    if duration_sec and duration_sec > 0:
+        t = min(t, max(duration_sec - 0.001, 0))
+    return t
+
+
+def capture_frame_by_ffmpeg_retry(
+    filepath,
+    timestamp_sec,
+    duration_sec=None,
+    deinterlace=False,
+):
+    shifts = [0, 0.05, -0.05, 0.1, -0.1, 0.25, -0.25, 0.5, -0.5, 1.0, -1.0]
+    tried = set()
+
+    for accurate_seek in [False, True]:
+        for shift in shifts:
+            t = _clamp_timestamp(timestamp_sec + shift, duration_sec)
+            key = (accurate_seek, round(t, 3))
+            if key in tried:
+                continue
+            tried.add(key)
+
+            frame = capture_frame_by_ffmpeg(
+                filepath,
+                t,
+                deinterlace=deinterlace,
+                accurate_seek=accurate_seek,
+            )
+            if frame is not None:
+                return frame
+    return None
+
+
+def safe_capture_last_frame_ffmpeg(
+    filepath,
+    duration_sec,
+    max_shift=1.0,
+    step=0.1,
+    deinterlace=False,
+):
+    for shift in range(0, int(max_shift / step) + 1):
+        t = duration_sec - shift * step
+        if t <= 0:
+            break
+        frame = capture_frame_by_ffmpeg_retry(
+            filepath,
+            t,
+            duration_sec=duration_sec,
+            deinterlace=deinterlace,
+        )
+        if frame is not None:
+            return t, frame
+    return None, None
+
+
+def normalize_capture_frame(frame, target_shape=None):
+    if frame is None:
+        return None
+    if frame.ndim == 2:
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    elif frame.ndim == 3 and frame.shape[2] == 4:
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+    elif frame.ndim != 3 or frame.shape[2] != 3:
+        return None
+
+    if target_shape is not None and frame.shape != target_shape:
+        target_height, target_width = target_shape[:2]
+        frame = cv2.resize(frame, (target_width, target_height))
+    return frame
+
+
+def normalize_capture_frames(frame_list, filepath=None):
+    if len(frame_list) != 20:
+        raise ValueError(
+            f"20개의 capture frame이 필요하지만 {len(frame_list)}개가 생성되었습니다: "
+            f"{filepath}"
+        )
+
+    frame_list = [normalize_capture_frame(frame) for frame in frame_list]
+    valid_indices = [i for i, frame in enumerate(frame_list) if frame is not None]
+    if not valid_indices:
+        raise ValueError(f"capture frame을 하나도 생성하지 못했습니다: {filepath}")
+
+    target_shape = frame_list[valid_indices[0]].shape
+    for i in valid_indices:
+        frame_list[i] = normalize_capture_frame(frame_list[i], target_shape)
+
+    valid_indices = [i for i, frame in enumerate(frame_list) if frame is not None]
+    missing_indices = [i for i, frame in enumerate(frame_list) if frame is None]
+    for i in missing_indices:
+        nearest_index = min(valid_indices, key=lambda valid_i: abs(valid_i - i))
+        frame_list[i] = frame_list[nearest_index].copy()
+
+    return frame_list
+
+
+def save_capture_grid(frame_list, out_path):
+    imgs_array = np.stack(frame_list)
+    frame_height, frame_width, color = frame_list[0].shape
+    imgs_array = imgs_array.reshape(4, 5, frame_height, frame_width, color)
+    rows = [np.hstack([imgs_array[i, j] for j in range(5)]) for i in range(4)]
+    big_img = np.vstack(rows)
+    cv2.imwrite(out_path, big_img)
+
+
+def capture_key_frames_by_video(
+    filepath,
+    basepath,
+    savepath,
+    save=True,
+    deinterlace=False,
+):
 
     _, _, diffpath = find_common_and_diff_parts(basepath, filepath)
+    savepath = Path(savepath)
 
     if len(diffpath.parts) > 1:
         # savepath = os.path.join(savepath, diffpath.parts[0])
@@ -406,35 +594,41 @@ def capture_key_frames_by_video(filepath, basepath, savepath, save=True):
     filename = ntpath.basename(filepath)
     filename_no_ext, ext = os.path.splitext(filename)
 
-    cap = cv2.VideoCapture(filepath)
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    duration_sec = total_frames / fps if fps else 0
-
-    # 기본 시점들, 프레임 저장
+    duration_sec = get_video_duration_sec(filepath)
     timestamps = [duration_sec * i / 20 for i in range(19)]
     frame_list = []
-    for i, t in enumerate(timestamps):
-        cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
-        ret, frame = cap.read()
-        frame_list.append(frame)
-    # 마지막 프레임 안전하게 찾기
-    last_t, last_frame = safe_capture_last_frame(
-        cap, duration_sec, max_shift=1.0, step=0.1
-    )
+
+    if deinterlace:
+        for t in timestamps:
+            frame_list.append(
+                capture_frame_by_ffmpeg_retry(
+                    filepath,
+                    t,
+                    duration_sec=duration_sec,
+                    deinterlace=deinterlace,
+                )
+            )
+        last_t, last_frame = safe_capture_last_frame_ffmpeg(
+            filepath, duration_sec, max_shift=1.0, step=0.1, deinterlace=deinterlace
+        )
+    else:
+        cap = cv2.VideoCapture(filepath)
+        for t in timestamps:
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ret, frame = cap.read()
+            frame_list.append(frame)
+        # 마지막 프레임 안전하게 찾기
+        last_t, last_frame = safe_capture_last_frame(
+            cap, duration_sec, max_shift=1.0, step=0.1
+        )
+        cap.release()
+
     frame_list.append(last_frame)
+    frame_list = normalize_capture_frames(frame_list, filepath)
     #
     if save:
-        imgs_array = np.array(frame_list)
-        width, height, color = frame_list[0].shape
-        imgs_array = imgs_array.reshape(4, 5, width, height, color)
-        rows = [np.hstack([imgs_array[i, j] for j in range(5)]) for i in range(4)]
-        big_img = np.vstack(rows)
         out_path = os.path.join(savepath, filename_no_ext) + "_capture.jpg"
-        cv2.imwrite(out_path, big_img)
-
-    cap.release()
+        save_capture_grid(frame_list, out_path)
 
     return frame_list
 

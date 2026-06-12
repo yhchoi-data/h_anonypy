@@ -20,7 +20,6 @@ from .modules_video import (
 )
 from .metadata_source import load_shared_metadata, normalize_metadata_source
 
-
 DEFAULT_FFMPEG_CMD = [
     "ffmpeg",
     "-i",
@@ -82,9 +81,11 @@ def normalize_config(config):
     return {
         "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
-        "run_anonymization": config.get("run_anonymization", True),
+        "run_anonymization": config.get("run_anonymization", False),
         "recodec": config.get("recodec", True),
         "verbose": config.get("verbose", True),
+        "capture": config.get("capture", False),
+        "capture_deinterlace": config.get("capture_deinterlace", False),
         "ffmpeg_cmd": config.get("ffmpeg_cmd", DEFAULT_FFMPEG_CMD.copy()),
         "video_meta_columns": config.get("video_meta_columns"),
         "datasets": datasets,
@@ -112,6 +113,21 @@ def get_next_hutom_id(hids_all, organ, n_digits):
     if not nums:
         return 1
     return np.sort(nums)[-1] + 1
+
+
+def resolve_start_id(dataset_config, db_next_id):
+    start_id = dataset_config.get("start_id")
+    if start_id is None:
+        return db_next_id
+
+    try:
+        start_id = int(start_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dataset start_id must be a positive integer.") from exc
+
+    if start_id < 1:
+        raise ValueError("dataset start_id must be a positive integer.")
+    return start_id
 
 
 def build_rawdata_path(filepath):
@@ -151,22 +167,61 @@ def save_db_format_export(video_info, dataset_config, video_meta_columns):
         )
 
     export_df = pd.DataFrame(export_data)
+    output_dir = get_dataset_output_dir(dataset_config)
+    os.makedirs(output_dir, exist_ok=True)
     export_path = os.path.join(
-        dataset_config["video_dir"],
+        output_dir,
         f"DB_FORMAT_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx",
     )
     export_df.to_excel(export_path, index=False)
     return export_path
 
 
-def build_video_info(video_dir):
-    source_info = get_video_infomation(video_dir)
-    posix = PurePath(video_dir)
-    video_info = check_patient_ids(
-        source_info,
-        video_dir,
-        id_path_index=len(posix.parts),
+def get_dataset_video_dirs(video_dir):
+    if isinstance(video_dir, (str, os.PathLike)):
+        return [str(video_dir)]
+    if isinstance(video_dir, (list, tuple)):
+        if not video_dir:
+            raise ValueError("dataset video_dir list must not be empty.")
+        return [str(path) for path in video_dir]
+    raise TypeError(
+        "dataset video_dir must be a path string or a list of path strings."
     )
+
+
+def get_dataset_output_dir(dataset_config):
+    if dataset_config.get("output_dir"):
+        return dataset_config["output_dir"]
+
+    video_dirs = get_dataset_video_dirs(dataset_config["video_dir"])
+    if len(video_dirs) == 1:
+        return video_dirs[0]
+    return os.path.commonpath(video_dirs)
+
+
+def get_row_video_root(video_info, row_index, dataset_config):
+    if "video_root" in video_info.columns:
+        video_root = video_info.loc[row_index, "video_root"]
+        if not pd.isna(video_root):
+            return str(video_root)
+    return get_dataset_video_dirs(dataset_config["video_dir"])[0]
+
+
+def build_video_info(video_dir):
+    video_infos = []
+    for root_dir in get_dataset_video_dirs(video_dir):
+        source_info = get_video_infomation(root_dir)
+        source_info["video_root"] = root_dir
+        posix = PurePath(root_dir)
+        root_info = check_patient_ids(
+            source_info,
+            root_dir,
+            id_path_index=len(posix.parts),
+        )
+        root_info["video_root"] = root_dir
+        video_infos.append(root_info)
+
+    video_info = pd.concat(video_infos, ignore_index=True)
     video_info.insert(0, "hutom_id", None)
     return video_info
 
@@ -205,8 +260,15 @@ def stage_1_extract_base_info(dataset_config):
     return video_info
 
 
-def stage_2_extract_metadata(video_info, dataset_config, video_meta, next_id, n_digits):
-    save_dir = os.path.join(dataset_config["video_dir"], "capture")
+def stage_2_extract_metadata(
+    video_info,
+    dataset_config,
+    video_meta,
+    next_id,
+    n_digits,
+    capture=False,
+    capture_deinterlace=False,
+):
     hash_col = get_hash_column(video_meta)
     ids = video_info["patient_id"].unique().tolist()
 
@@ -219,6 +281,8 @@ def stage_2_extract_metadata(video_info, dataset_config, video_meta, next_id, n_
 
         for row_index in check_idx:
             filepath = check_sample.loc[row_index, "filepath"]
+            video_root = get_row_video_root(video_info, row_index, dataset_config)
+            save_dir = os.path.join(video_root, "capture")
             meta_ffprobe = get_video_metadata_ffprobe(filepath)
             if not meta_ffprobe:
                 video_info.loc[row_index, "format"] = "dameged_file"
@@ -247,10 +311,17 @@ def stage_2_extract_metadata(video_info, dataset_config, video_meta, next_id, n_
                 video_stream.get("duration", meta_opencv["duration"])
             )
 
-            frames = capture_key_frames_by_video(
-                filepath, dataset_config["video_dir"], save_dir
-            )
-            video_info.loc[row_index, "split"] = check_split_screen(frames)
+            if capture:
+                frames = capture_key_frames_by_video(
+                    filepath,
+                    video_root,
+                    save_dir,
+                    save=capture,
+                    deinterlace=capture_deinterlace,
+                )
+                video_info.loc[row_index, "split"] = check_split_screen(frames)
+            else:
+                video_info.loc[row_index, "split"] = None
 
         ch_name_map = assign_stereo_ch_names(video_info.loc[check_idx])
         for row_index, ch_name in ch_name_map.items():
@@ -276,10 +347,11 @@ def stage_3_prepare_anonymization(
 
     for row_index in video_info.index:
         filepath = video_info.loc[row_index, "filepath"]
+        video_root = get_row_video_root(video_info, row_index, dataset_config)
         hutomid = video_info.loc[row_index, "hutom_id"]
         ch_name = video_info.loc[row_index, "ch_name"]
         anonyid = f"{hutomid}_{ch_name}.mp4"
-        anony_folder = os.path.join(dataset_config["video_dir"], "ANONYMOUS", hutomid)
+        anony_folder = os.path.join(video_root, "ANONYMOUS", hutomid)
         anony_filename = os.path.join(anony_folder, anonyid)
 
         os.makedirs(anony_folder, exist_ok=True)
@@ -313,8 +385,10 @@ def stage_3_prepare_anonymization(
     video_info["Center"] = dataset_config["center"]
     video_info["ImportDate"] = dataset_config["importdate"]
 
+    output_dir = get_dataset_output_dir(dataset_config)
+    os.makedirs(output_dir, exist_ok=True)
     preview_path = os.path.join(
-        dataset_config["video_dir"],
+        output_dir,
         f"VIDEO_MATA_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx",
     )
     video_info.to_excel(preview_path, index=False)
@@ -332,13 +406,19 @@ def stage_4_run_anonymization(jobs, recodec):
 
 
 def process_dataset(dataset_config, shared_data, global_config):
-    next_id = get_next_hutom_id(
+    db_next_id = get_next_hutom_id(
         shared_data["hids_all"],
         dataset_config["organ"],
         global_config["n_digits"],
     )
+    next_id = resolve_start_id(dataset_config, db_next_id)
 
     log(f"[0] loading data for {dataset_config['organ']}", global_config["verbose"])
+    if dataset_config.get("start_id") is not None:
+        log(
+            f"    using configured start_id={next_id} instead of DB next_id={db_next_id}",
+            global_config["verbose"],
+        )
     video_meta = shared_data["video_meta"]
 
     log(
@@ -354,6 +434,8 @@ def process_dataset(dataset_config, shared_data, global_config):
         video_meta,
         next_id,
         global_config["n_digits"],
+        global_config["capture"],
+        global_config["capture_deinterlace"],
     )
 
     log("[3] preparing anonymization jobs", global_config["verbose"])

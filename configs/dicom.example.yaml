@@ -15,7 +15,10 @@ n_digits: 4
 run_anonymization: true
 verbose: true
 datasets:
-  - dicom_dir: /nas/nas6/DataTeam/LIVER/20250731_[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/Liver_Dicom
+  - dicom_dir:
+      - /nas/nas6/DataTeam/LIVER/20250731_[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/2026/Liver_Dicom
+      - /nas/nas6/DataTeam/LIVER/20250731_[CT_MRI]신촌세브란스병원-한대훈-250730_NN건/2025/Liver_Dicom
     center: 신촌세브란스병원
     importdate: "20250731"
     organ: LIVER
+    start_id: null

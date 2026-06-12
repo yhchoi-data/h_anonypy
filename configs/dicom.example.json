@@ -20,10 +20,14 @@
   "verbose": true,
   "datasets": [
     {
-      "dicom_dir": "/nas/nas6/DataTeam/LIVER/20260422",
+      "dicom_dir": [
+        "/nas/nas6/DataTeam/LIVER/20260422/2026",
+        "/nas/nas6/DataTeam/LIVER/20260422/2025"
+      ],
       "center": "신촌세브란스병원",
       "importdate": "20250410",
-      "organ": "LIVER"
+      "organ": "LIVER",
+      "start_id": null
     }
   ]
 }
