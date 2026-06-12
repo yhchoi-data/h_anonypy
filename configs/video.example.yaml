@@ -30,8 +30,13 @@ n_digits: 4
 run_anonymization: true
 recodec: true
 verbose: true
+capture: true
+capture_deinterlace: true
 datasets:
-  - video_dir: /nas/nas6/DataTeam/COLON/[범부처전주기] 민병소교수님/211014_LAR
+  - video_dir:
+      - /nas/nas6/DataTeam/COLON/[범부처전주기] 민병소교수님/211014_LAR/2026
+      - /nas/nas6/DataTeam/COLON/[범부처전주기] 민병소교수님/211014_LAR/2025
     center: 범부처전주기
     importdate: "20260413"
     organ: COLON
+    start_id: null

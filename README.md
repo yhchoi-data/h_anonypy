@@ -52,8 +52,14 @@ Key fields:
 - `n_digits`: zero-padding width for generated IDs
 - `run_anonymization`: if `true`, run anonymization; if `false`, only build metadata and jobs
 - `recodec`: video only. If `run_anonymization` is `true`, run `ffmpeg` when `true`, or copy files when `false`
+- `capture`: video only. If `true`, save capture image `png` ; if `false`, not save capture image
+- `capture_deinterlace`: video only. If `true`, capture key frames with FFmpeg `yadif`; if `false`, use OpenCV capture
 - `verbose`: print pipeline progress when `true`
 - `datasets`: list of dataset jobs to process
+- `datasets[].video_dir`: video only. A path string, or a list of path strings processed as one batch with shared ID assignment
+- `datasets[].dicom_dir`: DICOM only. A path string, or a list of path strings processed as one batch with shared ID assignment
+- `datasets[].output_dir`: video/DICOM. Optional output folder for aggregate preview/export files when an input dir is a list
+- `datasets[].start_id`: video/DICOM. Optional numeric first ID to use instead of the DB-derived next ID
 
 DB metadata config example:
 

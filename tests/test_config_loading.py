@@ -82,9 +82,32 @@ def test_normalize_video_config_applies_defaults():
     )
 
     assert normalized["n_digits"] == 4
-    assert normalized["run_anonymization"] is True
+    assert normalized["run_anonymization"] is False
     assert normalized["recodec"] is True
     assert normalized["verbose"] is True
+    assert normalized["capture_deinterlace"] is False
+
+
+def test_normalize_video_config_accepts_capture_deinterlace():
+    normalized = normalize_config(
+        {
+            "metadata_source": db_metadata_source(
+                video_meta="public.tbl_data_import_video",
+                hids_all="hutom_bronze.tbl_id_token_linkage",
+            ),
+            "capture_deinterlace": True,
+            "datasets": [
+                {
+                    "video_dir": "/tmp/video",
+                    "center": "A",
+                    "importdate": "20260416",
+                    "organ": "COLON",
+                }
+            ],
+        }
+    )
+
+    assert normalized["capture_deinterlace"] is True
 
 
 def test_normalize_video_config_accepts_db_metadata_source():
