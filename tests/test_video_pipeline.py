@@ -323,6 +323,8 @@ def test_stage_3_prepare_anonymization_supports_video_dir_list(tmp_path):
 
     assert jobs[0]["anony_filepath"].startswith(str(root_2025 / "ANONYMOUS"))
     assert jobs[1]["anony_filepath"].startswith(str(root_2026 / "ANONYMOUS"))
+    assert not (root_2025 / "ANONYMOUS").exists()
+    assert not (root_2026 / "ANONYMOUS").exists()
     assert (tmp_path / "VIDEO_MATA_COLON_20260417.xlsx").exists()
     assert get_dataset_output_dir(dataset_config) == str(tmp_path)
     assert result.loc[0, "sourcedata_filename"] == "COLON0001_ch1_01.mp4"

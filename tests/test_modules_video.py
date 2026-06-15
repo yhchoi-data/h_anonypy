@@ -1,6 +1,9 @@
 import numpy as np
 
-from h_anonypy.modules_video import capture_key_frames_by_video, normalize_capture_frames
+from h_anonypy.modules_video import (
+    capture_key_frames_by_video,
+    normalize_capture_frames,
+)
 
 
 def test_normalize_capture_frames_fills_missing_and_resizes():

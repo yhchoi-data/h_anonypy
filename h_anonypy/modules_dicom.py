@@ -7,7 +7,6 @@ from collections import defaultdict
 import pydicom
 from pydicom.errors import InvalidDicomError
 
-
 pydicom.config.convert_wrong_length_to_UN = True
 
 

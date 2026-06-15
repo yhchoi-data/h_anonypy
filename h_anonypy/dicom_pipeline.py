@@ -371,20 +371,28 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
         for row_index, sample_path, hutom_id in zip(
             sample.index, sample_paths, hutom_ids
         ):
+            row = sample_info.loc[row_index]
             dicom_root = get_row_dicom_root(sample_info, row_index, dataset_config)
             save_dir = Path(dicom_root) / "ANONYMOUS"
             dicom_dir_name = Path(dicom_root).name
             organ_root = _get_organ_root(dicom_root, dataset_config["organ"])
             posix = Path(sample_path)
-            if dicom_dir_name not in posix.parts:
-                continue
+            raw_folder = _normalize_key(row.get("raw_folder"))
+            dcm_path = Path(raw_folder) if raw_folder else organ_root / posix
+            try:
+                relative_folder = dcm_path.relative_to(dicom_root)
+                subpath_tail = (
+                    Path(*relative_folder.parts[1:])
+                    if len(relative_folder.parts) > 1
+                    else Path()
+                )
+            except ValueError:
+                if dicom_dir_name not in posix.parts:
+                    continue
+                idx = posix.parts.index(dicom_dir_name)
+                subpath_tail = Path(*posix.parts[idx + 2 :])
 
-            idx = posix.parts.index(dicom_dir_name)
-            subpath = Path(hutom_id) / Path(*posix.parts[idx + 2 :])
-            anony_path = save_dir / subpath
-            os.makedirs(anony_path, exist_ok=True)
-
-            dcm_path = organ_root / posix
+            anony_path = save_dir / hutom_id / subpath_tail
             jobs.append(
                 {
                     "row_index": row_index,
@@ -400,6 +408,7 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
 
             for dirpath, _, filenames in os.walk(dcm_path):
                 for filename in sorted(filenames):
+                    os.makedirs(anony_path, exist_ok=True)
                     anonymize_dicom_file(
                         dirpath, filename, str(anony_path), id=hutom_id
                     )

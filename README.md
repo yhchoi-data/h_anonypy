@@ -52,7 +52,7 @@ Key fields:
 - `n_digits`: zero-padding width for generated IDs
 - `run_anonymization`: if `true`, run anonymization; if `false`, only build metadata and jobs
 - `recodec`: video only. If `run_anonymization` is `true`, run `ffmpeg` when `true`, or copy files when `false`
-- `capture`: video only. If `true`, save capture image `png` ; if `false`, not save capture image
+- `capture`: video only. If `true`, save capture image `jpg`; if `false`, skip capture image generation
 - `capture_deinterlace`: video only. If `true`, capture key frames with FFmpeg `yadif`; if `false`, use OpenCV capture
 - `verbose`: print pipeline progress when `true`
 - `datasets`: list of dataset jobs to process
