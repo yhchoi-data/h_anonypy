@@ -15,11 +15,13 @@ repos:
       - id: ruff
         args: ["--fix"]
 
-  - repo: https://github.com/psf/black
-    rev: 24.10.0
+  - repo: local
     hooks:
       - id: black
-        language_version: python3.11
+        name: black
+        entry: uv run black --target-version py311
+        language: system
+        types_or: [python, pyi]
 
   - repo: local
     hooks:

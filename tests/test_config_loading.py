@@ -85,6 +85,7 @@ def test_normalize_video_config_applies_defaults():
     assert normalized["run_anonymization"] is False
     assert normalized["recodec"] is True
     assert normalized["verbose"] is True
+    assert normalized["capture"] is False
     assert normalized["capture_deinterlace"] is False
 
 

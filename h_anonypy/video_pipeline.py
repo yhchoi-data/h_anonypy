@@ -354,8 +354,6 @@ def stage_3_prepare_anonymization(
         anony_folder = os.path.join(video_root, "ANONYMOUS", hutomid)
         anony_filename = os.path.join(anony_folder, anonyid)
 
-        os.makedirs(anony_folder, exist_ok=True)
-
         run_cmd = ffmpeg_cmd.copy()
         run_cmd[2] = filepath
         run_cmd[-1] = anony_filename
@@ -399,6 +397,7 @@ def stage_3_prepare_anonymization(
 
 def stage_4_run_anonymization(jobs, recodec):
     for job in jobs:
+        os.makedirs(os.path.dirname(job["anony_filepath"]), exist_ok=True)
         if recodec:
             subprocess.run(job["cmd"], check=True)
         else:

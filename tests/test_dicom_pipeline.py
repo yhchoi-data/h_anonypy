@@ -215,7 +215,7 @@ def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
     )
     assert Path(result.loc[0, "anony_folder"]) == expected_folder
     assert jobs[0]["raw_folder"] == str(raw_folder)
-    assert not list(expected_folder.iterdir())
+    assert not expected_folder.exists()
 
 
 def test_stage_5_run_anonymization_supports_dicom_dir_list(tmp_path):
@@ -261,6 +261,8 @@ def test_stage_5_run_anonymization_supports_dicom_dir_list(tmp_path):
     assert jobs[1]["raw_folder"] == str(raw_folder_2026)
     assert result.loc[0, "anony_folder"].startswith(str(dicom_root_2025 / "ANONYMOUS"))
     assert result.loc[1, "anony_folder"].startswith(str(dicom_root_2026 / "ANONYMOUS"))
+    assert not (dicom_root_2025 / "ANONYMOUS").exists()
+    assert not (dicom_root_2026 / "ANONYMOUS").exists()
 
 
 def test_save_dicom_preview_metadata_uses_expected_filename(tmp_path):
