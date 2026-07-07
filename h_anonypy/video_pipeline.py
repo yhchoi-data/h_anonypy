@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 from .modules_video import (
-    assign_stereo_ch_names,
     capture_key_frames_by_video,
     check_patient_ids,
     check_split_screen,
@@ -17,6 +16,7 @@ from .modules_video import (
     get_video_metadata_ffprobe,
     get_video_metadata_opencv,
     infer_capture_mode,
+    parse_channel_token,
 )
 from .metadata_source import load_shared_metadata, normalize_metadata_source
 
@@ -32,8 +32,9 @@ DEFAULT_FFMPEG_CMD = [
     "4.0",
     "-pix_fmt",
     "yuv420p",
-    "-s",
-    "1280x1024",
+    "-vf",
+    "scale=1280:1024:force_original_aspect_ratio=decrease,"
+    "pad=1280:1024:(ow-iw)/2:(oh-ih)/2",
     "-r",
     "30",
     "-b:v",
@@ -323,9 +324,34 @@ def stage_2_extract_metadata(
             else:
                 video_info.loc[row_index, "split"] = None
 
-        ch_name_map = assign_stereo_ch_names(video_info.loc[check_idx])
-        for row_index, ch_name in ch_name_map.items():
-            video_info.loc[row_index, "ch_name"] = ch_name
+        hash_counts = check_sample["hash"].fillna("__NA__").value_counts(dropna=False)
+        duplicate_hashes = {
+            hash_value
+            for hash_value, count in hash_counts.items()
+            if count > 1 and hash_value != "__NA__"
+        }
+
+        channel_counts = {}
+        for row_index in sorted(
+            check_idx,
+            key=lambda idx: (
+                video_info.loc[idx, "rawdata_filename"],
+                video_info.loc[idx, "filepath"],
+            ),
+        ):
+            hash_value = video_info.loc[row_index, "hash"]
+            if pd.notna(hash_value) and hash_value in duplicate_hashes:
+                video_info.loc[row_index, "ch_name"] = None
+                continue
+
+            channel = (
+                parse_channel_token(video_info.loc[row_index, "rawdata_filename"])
+                or "ch1"
+            )
+            channel_counts[channel] = channel_counts.get(channel, 0) + 1
+            video_info.loc[row_index, "ch_name"] = (
+                f"{channel}_{channel_counts[channel]:02d}"
+            )
 
         existing = video_meta[
             video_meta[hash_col].isin(video_info.loc[check_idx, "hash"].tolist())
@@ -344,8 +370,18 @@ def stage_3_prepare_anonymization(
     video_info, dataset_config, ffmpeg_cmd, video_meta_columns=None
 ):
     jobs = []
+    seen_hashes = set()
 
     for row_index in video_info.index:
+        hash_value = video_info.loc[row_index, "hash"]
+        if pd.notna(hash_value) and hash_value in seen_hashes:
+            video_info.loc[row_index, "sourcedata_path"] = None
+            video_info.loc[row_index, "sourcedata_filename"] = None
+            video_info.loc[row_index, "anony_filepath"] = None
+            continue
+
+        seen_hashes.add(hash_value)
+
         filepath = video_info.loc[row_index, "filepath"]
         video_root = get_row_video_root(video_info, row_index, dataset_config)
         hutomid = video_info.loc[row_index, "hutom_id"]

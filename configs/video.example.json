@@ -39,12 +39,9 @@
   "capture_deinterlace": true,
   "datasets": [
     {
-      "video_dir": [
-        "/nas/nas6/DataTeam/ESO/[VIDEO]삼성서울병원_20260610_식도절제술/2025하반기",
-        "/nas/nas6/DataTeam/ESO/[VIDEO]삼성서울병원_20260610_식도절제술/2026"
-      ],
+      "video_dir": "/nas/nas6/DataTeam/TEST/DUPLICATE/",
       "center": "서울삼성병원",
-      "importdate": "20260610",
+      "importdate": "20260706",
       "organ": "ESO",
       "start_id": null
     }

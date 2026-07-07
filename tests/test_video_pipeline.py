@@ -400,3 +400,129 @@ def test_stage_3_prepare_anonymization_saves_db_format_excel(tmp_path):
     assert export_df.loc[0, "rawdata_filepath"].endswith("/video/patient_a")
     assert export_df.loc[0, "sourcedata_filepath"].endswith("/VIDEO/COLON0001")
     assert export_df.loc[0, "sourcedata_filename"] == "COLON0001_ch1_01.mp4"
+
+
+def test_stage_3_prepare_anonymization_skips_duplicate_hash_rows(tmp_path):
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    raw_video = video_dir / "patient_a" / "clip.mp4"
+    raw_video.parent.mkdir(parents=True)
+    raw_video.write_text("dummy", encoding="utf-8")
+
+    video_info = pd.DataFrame(
+        [
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": "ch1_01",
+                "hash": "duplicate-hash",
+            },
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": "ch1_02",
+                "hash": "duplicate-hash",
+            },
+        ]
+    )
+    dataset_config = {
+        "video_dir": str(video_dir),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+    ffmpeg_cmd = ["ffmpeg", "-i", None, None]
+
+    result, jobs = stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd)
+
+    assert len(jobs) == 1
+    assert jobs[0]["row_index"] == 0
+    assert pd.isna(result.loc[1, "anony_filepath"])
+
+
+def test_stage_2_extract_metadata_keeps_channel_numbers_contiguous(
+    monkeypatch, tmp_path
+):
+    raw_video = tmp_path / "clip.mp4"
+    raw_video.write_text("dummy", encoding="utf-8")
+    video_info = pd.DataFrame(
+        [
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "first-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "second-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "duplicate-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "duplicate-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "unique-hash",
+            },
+        ]
+    )
+    video_meta = pd.DataFrame(columns=["hash", "hutom_id"])
+    dataset_config = {
+        "video_dir": str(tmp_path),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.get_video_metadata_ffprobe",
+        lambda filepath: {
+            "streams": [
+                {
+                    "width": 1920,
+                    "height": 1080,
+                    "codec_name": "h264",
+                    "avg_frame_rate": "30/1",
+                    "nb_frames": "30",
+                    "duration": "1.0",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.get_video_metadata_opencv",
+        lambda filepath: {
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "nb_frames": 30,
+            "duration": 1.0,
+        },
+    )
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.check_split_screen",
+        lambda frames: None,
+    )
+
+    stage_2_extract_metadata(
+        video_info, dataset_config, video_meta, next_id=1, n_digits=4
+    )
+
+    assert video_info.loc[0, "ch_name"] == "ch1_01"
+    assert video_info.loc[1, "ch_name"] == "ch1_02"
+    assert video_info.loc[2, "ch_name"] is None
+    assert video_info.loc[3, "ch_name"] is None
+    assert video_info.loc[4, "ch_name"] == "ch1_03"
