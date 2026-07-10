@@ -373,6 +373,13 @@ def stage_3_prepare_anonymization(
     seen_hashes = set()
 
     for row_index in video_info.index:
+        ch_name = video_info.loc[row_index, "ch_name"]
+        if pd.isna(ch_name):
+            video_info.loc[row_index, "sourcedata_path"] = None
+            video_info.loc[row_index, "sourcedata_filename"] = None
+            video_info.loc[row_index, "anony_filepath"] = None
+            continue
+
         hash_value = video_info.loc[row_index, "hash"]
         if pd.notna(hash_value) and hash_value in seen_hashes:
             video_info.loc[row_index, "sourcedata_path"] = None
@@ -385,7 +392,6 @@ def stage_3_prepare_anonymization(
         filepath = video_info.loc[row_index, "filepath"]
         video_root = get_row_video_root(video_info, row_index, dataset_config)
         hutomid = video_info.loc[row_index, "hutom_id"]
-        ch_name = video_info.loc[row_index, "ch_name"]
         anonyid = f"{hutomid}_{ch_name}.mp4"
         anony_folder = os.path.join(video_root, "ANONYMOUS", hutomid)
         anony_filename = os.path.join(anony_folder, anonyid)
@@ -393,6 +399,9 @@ def stage_3_prepare_anonymization(
         run_cmd = ffmpeg_cmd.copy()
         run_cmd[2] = filepath
         run_cmd[-1] = anony_filename
+        run_cmd = [arg for arg in run_cmd if arg != "-n"]
+        if "-y" not in run_cmd:
+            run_cmd.insert(1, "-y")
 
         jobs.append(
             {

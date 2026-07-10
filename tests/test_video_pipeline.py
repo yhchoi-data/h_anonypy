@@ -276,6 +276,7 @@ def test_stage_3_prepare_anonymization_uses_hutomid_and_channel_in_filename(tmp_
 
     expected_name = "COLON0001_ch1_01.mp4"
     assert Path(jobs[0]["anony_filepath"]).name == expected_name
+    assert jobs[0]["cmd"][1] == "-y"
     assert result.loc[0, "sourcedata_filename"] == expected_name
     assert result.loc[0, "sourcedata_path"].endswith("/VIDEO/COLON0001")
     assert result.loc[0, "rawdata_path"].endswith("/video/patient_a")
@@ -438,6 +439,39 @@ def test_stage_3_prepare_anonymization_skips_duplicate_hash_rows(tmp_path):
     assert len(jobs) == 1
     assert jobs[0]["row_index"] == 0
     assert pd.isna(result.loc[1, "anony_filepath"])
+
+
+def test_stage_3_prepare_anonymization_skips_rows_without_channel_name(tmp_path):
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    raw_video = video_dir / "patient_a" / "clip.mp4"
+    raw_video.parent.mkdir(parents=True)
+    raw_video.write_text("dummy", encoding="utf-8")
+
+    video_info = pd.DataFrame(
+        [
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": None,
+                "hash": "hash-without-channel",
+            }
+        ]
+    )
+    dataset_config = {
+        "video_dir": str(video_dir),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+    ffmpeg_cmd = ["ffmpeg", "-i", None, None]
+
+    result, jobs = stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd)
+
+    assert jobs == []
+    assert pd.isna(result.loc[0, "sourcedata_path"])
+    assert pd.isna(result.loc[0, "sourcedata_filename"])
+    assert pd.isna(result.loc[0, "anony_filepath"])
 
 
 def test_stage_2_extract_metadata_keeps_channel_numbers_contiguous(
