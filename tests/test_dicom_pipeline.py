@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from h_anonypy.dicom_pipeline import (
     get_dataset_output_dir,
@@ -34,8 +35,13 @@ def test_stage_1_list_sample_folders_accepts_dicom_dir_list(tmp_path):
     assert set(result["dicom_root"]) == {str(root_2025), str(root_2026)}
 
 
-def test_stage_2_extract_sample_metadata_uses_row_dicom_root(monkeypatch, tmp_path):
-    dicom_root = tmp_path / "LIVER" / "2025" / "Liver_Dicom"
+@pytest.mark.parametrize("organ, root_name", [
+    ("LIVER", "LIVER"), ("URO", "URO"), ("URO", "RUS_Kidney"),
+])
+def test_stage_2_extract_sample_metadata_uses_row_dicom_root(
+    monkeypatch, tmp_path, organ, root_name
+):
+    dicom_root = tmp_path / root_name / "2025" / "Liver_Dicom"
     sample_root = dicom_root / "patient_a"
     raw_folder = sample_root / "DATA" / "SE1"
     dicom_file = raw_folder / "IMG0001"
@@ -52,7 +58,7 @@ def test_stage_2_extract_sample_metadata_uses_row_dicom_root(monkeypatch, tmp_pa
     )
     dataset_config = {
         "dicom_dir": [str(dicom_root)],
-        "organ": "LIVER",
+        "organ": organ,
     }
 
     monkeypatch.setattr(
@@ -165,8 +171,13 @@ def test_stage_4_assign_ids_separates_same_sample_name_across_roots():
     assert result.loc[1, "hutom_id"] == "LIVER0043"
 
 
-def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
-    dicom_dir = tmp_path / "LIVER" / "incoming" / "Liver_Dicom"
+@pytest.mark.parametrize("organ, root_name", [
+    ("LIVER", "LIVER"), ("URO", "URO"), ("URO", "RUS_Kidney"),
+])
+def test_stage_5_run_anonymization_builds_jobs_without_writing_files(
+    tmp_path, organ, root_name
+):
+    dicom_dir = tmp_path / root_name / "incoming" / "Liver_Dicom"
     raw_folder = (
         dicom_dir
         / "patient_a"
@@ -186,13 +197,14 @@ def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
                 "PatientID": "P001",
                 "sample_name": "patient_a",
                 "folder": "incoming/Liver_Dicom/patient_a/DATA/20250725/092454/7866398/EX1/SE1",
-                "hutom_id": "LIVER0001",
+                "hutom_id": f"{organ}0001",
             }
         ]
     )
     dataset_config = {
         "dicom_dir": str(dicom_dir),
-        "organ": "LIVER",
+        "output_dir": str(tmp_path / "output"),
+        "organ": organ,
         "importdate": "20260416",
     }
 
@@ -203,9 +215,10 @@ def test_stage_5_run_anonymization_builds_jobs_without_writing_files(tmp_path):
     )
 
     expected_folder = (
-        dicom_dir
+        tmp_path
+        / "output"
         / "ANONYMOUS"
-        / "LIVER0001"
+        / f"{organ}0001"
         / "DATA"
         / "20250725"
         / "092454"
@@ -247,6 +260,7 @@ def test_stage_5_run_anonymization_supports_dicom_dir_list(tmp_path):
     )
     dataset_config = {
         "dicom_dir": [str(dicom_root_2025), str(dicom_root_2026)],
+        "output_dir": str(tmp_path / "output"),
         "organ": "LIVER",
         "importdate": "20260416",
     }
@@ -259,8 +273,8 @@ def test_stage_5_run_anonymization_supports_dicom_dir_list(tmp_path):
 
     assert jobs[0]["raw_folder"] == str(raw_folder_2025)
     assert jobs[1]["raw_folder"] == str(raw_folder_2026)
-    assert result.loc[0, "anony_folder"].startswith(str(dicom_root_2025 / "ANONYMOUS"))
-    assert result.loc[1, "anony_folder"].startswith(str(dicom_root_2026 / "ANONYMOUS"))
+    assert result.loc[0, "anony_folder"].startswith(str(tmp_path / "output" / "ANONYMOUS"))
+    assert result.loc[1, "anony_folder"].startswith(str(tmp_path / "output" / "ANONYMOUS"))
     assert not (dicom_root_2025 / "ANONYMOUS").exists()
     assert not (dicom_root_2026 / "ANONYMOUS").exists()
 
@@ -269,6 +283,7 @@ def test_save_dicom_preview_metadata_uses_expected_filename(tmp_path):
     sample_info = pd.DataFrame([{"hutom_id": "LIVER0001"}])
     dataset_config = {
         "dicom_dir": str(tmp_path),
+        "output_dir": str(tmp_path / "output"),
         "organ": "LIVER",
         "importdate": "20260416",
     }
@@ -277,6 +292,7 @@ def test_save_dicom_preview_metadata_uses_expected_filename(tmp_path):
 
     assert Path(preview_path).name == "DICOM_META_LIVER_20260416.xlsx"
     assert Path(preview_path).exists()
+    assert Path(preview_path).parent == tmp_path / "output"
 
 
 def test_save_dicom_preview_metadata_supports_dicom_dir_list(tmp_path):
@@ -287,11 +303,12 @@ def test_save_dicom_preview_metadata_supports_dicom_dir_list(tmp_path):
     sample_info = pd.DataFrame([{"hutom_id": "LIVER0001"}])
     dataset_config = {
         "dicom_dir": [str(root_2025), str(root_2026)],
+        "output_dir": str(tmp_path / "output"),
         "organ": "LIVER",
         "importdate": "20260416",
     }
 
     preview_path = save_dicom_preview_metadata(sample_info, dataset_config)
 
-    assert Path(preview_path) == tmp_path / "DICOM_META_LIVER_20260416.xlsx"
-    assert get_dataset_output_dir(dataset_config) == str(tmp_path)
+    assert Path(preview_path) == tmp_path / "output" / "DICOM_META_LIVER_20260416.xlsx"
+    assert get_dataset_output_dir(dataset_config) == str(tmp_path / "output")

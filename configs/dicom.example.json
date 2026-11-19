@@ -18,15 +18,16 @@
   "n_digits": 4,
   "run_anonymization": true,
   "verbose": true,
+  "ct_meta_format": "configs/CT_META_FORMAT.xlsx",
   "datasets": [
     {
       "dicom_dir": [
-        "/nas/nas6/DataTeam/LIVER/20260422/2026",
-        "/nas/nas6/DataTeam/LIVER/20260422/2025"
+        "/nas/nas3/miops/Research/RUS_Kidney/GradientHealth/Kidney_CT_1mm_AP_PP_DP_59명/dicomweb/studies/"
       ],
-      "center": "신촌세브란스병원",
-      "importdate": "20250410",
-      "organ": "LIVER",
+      "output_dir": "/nas/nas6/DataTeam/UROFDA20261113",
+      "center": "GradientHealth",
+      "importdate": "20261113",
+      "organ": "URO",
       "start_id": null
     }
   ]

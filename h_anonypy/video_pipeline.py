@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 from .modules_video import (
-    assign_stereo_ch_names,
     capture_key_frames_by_video,
     check_patient_ids,
     check_split_screen,
@@ -17,6 +16,7 @@ from .modules_video import (
     get_video_metadata_ffprobe,
     get_video_metadata_opencv,
     infer_capture_mode,
+    parse_channel_token,
 )
 from .metadata_source import load_shared_metadata, normalize_metadata_source
 
@@ -32,8 +32,9 @@ DEFAULT_FFMPEG_CMD = [
     "4.0",
     "-pix_fmt",
     "yuv420p",
-    "-s",
-    "1280x1024",
+    "-vf",
+    "scale=1280:1024:force_original_aspect_ratio=decrease,"
+    "pad=1280:1024:(ow-iw)/2:(oh-ih)/2",
     "-r",
     "30",
     "-b:v",
@@ -78,15 +79,28 @@ def normalize_config(config):
     if not datasets:
         raise ValueError("Config must include a non-empty 'datasets' list.")
 
+    for index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict) or not dataset.get("output_dir"):
+            raise ValueError(f"datasets[{index}].output_dir is required.")
+
+    preserve_aspect_ratio = config.get("preserve_aspect_ratio", True)
+    if not isinstance(preserve_aspect_ratio, bool):
+        raise ValueError("preserve_aspect_ratio must be true or false.")
+
+    ffmpeg_cmd = DEFAULT_FFMPEG_CMD.copy()
+    if not preserve_aspect_ratio:
+        ffmpeg_cmd[ffmpeg_cmd.index("-vf") + 1] = "scale=1280:1024,setsar=1"
+
     return {
         "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
         "run_anonymization": config.get("run_anonymization", False),
         "recodec": config.get("recodec", True),
+        "preserve_aspect_ratio": preserve_aspect_ratio,
         "verbose": config.get("verbose", True),
         "capture": config.get("capture", False),
         "capture_deinterlace": config.get("capture_deinterlace", False),
-        "ffmpeg_cmd": config.get("ffmpeg_cmd", DEFAULT_FFMPEG_CMD.copy()),
+        "ffmpeg_cmd": config.get("ffmpeg_cmd", ffmpeg_cmd),
         "video_meta_columns": config.get("video_meta_columns"),
         "datasets": datasets,
     }
@@ -190,13 +204,10 @@ def get_dataset_video_dirs(video_dir):
 
 
 def get_dataset_output_dir(dataset_config):
-    if dataset_config.get("output_dir"):
-        return dataset_config["output_dir"]
-
-    video_dirs = get_dataset_video_dirs(dataset_config["video_dir"])
-    if len(video_dirs) == 1:
-        return video_dirs[0]
-    return os.path.commonpath(video_dirs)
+    output_dir = dataset_config.get("output_dir")
+    if not output_dir:
+        raise ValueError("dataset output_dir is required.")
+    return str(output_dir)
 
 
 def get_row_video_root(video_info, row_index, dataset_config):
@@ -281,8 +292,6 @@ def stage_2_extract_metadata(
 
         for row_index in check_idx:
             filepath = check_sample.loc[row_index, "filepath"]
-            video_root = get_row_video_root(video_info, row_index, dataset_config)
-            save_dir = os.path.join(video_root, "capture")
             meta_ffprobe = get_video_metadata_ffprobe(filepath)
             if not meta_ffprobe:
                 video_info.loc[row_index, "format"] = "dameged_file"
@@ -312,6 +321,10 @@ def stage_2_extract_metadata(
             )
 
             if capture:
+                video_root = get_row_video_root(video_info, row_index, dataset_config)
+                save_dir = os.path.join(
+                    get_dataset_output_dir(dataset_config), "capture"
+                )
                 frames = capture_key_frames_by_video(
                     filepath,
                     video_root,
@@ -323,9 +336,34 @@ def stage_2_extract_metadata(
             else:
                 video_info.loc[row_index, "split"] = None
 
-        ch_name_map = assign_stereo_ch_names(video_info.loc[check_idx])
-        for row_index, ch_name in ch_name_map.items():
-            video_info.loc[row_index, "ch_name"] = ch_name
+        hash_counts = check_sample["hash"].fillna("__NA__").value_counts(dropna=False)
+        duplicate_hashes = {
+            hash_value
+            for hash_value, count in hash_counts.items()
+            if count > 1 and hash_value != "__NA__"
+        }
+
+        channel_counts = {}
+        for row_index in sorted(
+            check_idx,
+            key=lambda idx: (
+                video_info.loc[idx, "rawdata_filename"],
+                video_info.loc[idx, "filepath"],
+            ),
+        ):
+            hash_value = video_info.loc[row_index, "hash"]
+            if pd.notna(hash_value) and hash_value in duplicate_hashes:
+                video_info.loc[row_index, "ch_name"] = None
+                continue
+
+            channel = (
+                parse_channel_token(video_info.loc[row_index, "rawdata_filename"])
+                or "ch1"
+            )
+            channel_counts[channel] = channel_counts.get(channel, 0) + 1
+            video_info.loc[row_index, "ch_name"] = (
+                f"{channel}_{channel_counts[channel]:02d}"
+            )
 
         existing = video_meta[
             video_meta[hash_col].isin(video_info.loc[check_idx, "hash"].tolist())
@@ -344,19 +382,39 @@ def stage_3_prepare_anonymization(
     video_info, dataset_config, ffmpeg_cmd, video_meta_columns=None
 ):
     jobs = []
+    seen_hashes = set()
 
     for row_index in video_info.index:
-        filepath = video_info.loc[row_index, "filepath"]
-        video_root = get_row_video_root(video_info, row_index, dataset_config)
-        hutomid = video_info.loc[row_index, "hutom_id"]
         ch_name = video_info.loc[row_index, "ch_name"]
+        if pd.isna(ch_name):
+            video_info.loc[row_index, "sourcedata_path"] = None
+            video_info.loc[row_index, "sourcedata_filename"] = None
+            video_info.loc[row_index, "anony_filepath"] = None
+            continue
+
+        hash_value = video_info.loc[row_index, "hash"]
+        if pd.notna(hash_value) and hash_value in seen_hashes:
+            video_info.loc[row_index, "sourcedata_path"] = None
+            video_info.loc[row_index, "sourcedata_filename"] = None
+            video_info.loc[row_index, "anony_filepath"] = None
+            continue
+
+        seen_hashes.add(hash_value)
+
+        filepath = video_info.loc[row_index, "filepath"]
+        hutomid = video_info.loc[row_index, "hutom_id"]
         anonyid = f"{hutomid}_{ch_name}.mp4"
-        anony_folder = os.path.join(video_root, "ANONYMOUS", hutomid)
+        anony_folder = os.path.join(
+            get_dataset_output_dir(dataset_config), "ANONYMOUS", hutomid
+        )
         anony_filename = os.path.join(anony_folder, anonyid)
 
         run_cmd = ffmpeg_cmd.copy()
         run_cmd[2] = filepath
         run_cmd[-1] = anony_filename
+        run_cmd = [arg for arg in run_cmd if arg != "-n"]
+        if "-y" not in run_cmd:
+            run_cmd.insert(1, "-y")
 
         jobs.append(
             {

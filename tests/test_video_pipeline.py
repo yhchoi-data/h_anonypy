@@ -24,6 +24,7 @@ def test_process_dataset_uses_configured_start_id(monkeypatch, tmp_path):
     video_info = pd.DataFrame([{"patient_id": "P001"}])
     dataset_config = {
         "video_dir": str(tmp_path),
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -80,16 +81,31 @@ def test_build_video_info_accepts_video_dir_list(tmp_path):
     root_2026 = tmp_path / "2026"
     raw_2025 = root_2025 / "patient_a" / "clip_2025.mp4"
     raw_2026 = root_2026 / "patient_b" / "clip_2026.mp4"
+    root_video = root_2025 / "ignore_me.mp4"
     raw_2025.parent.mkdir(parents=True)
     raw_2026.parent.mkdir(parents=True)
     raw_2025.write_text("dummy", encoding="utf-8")
     raw_2026.write_text("dummy", encoding="utf-8")
+    root_video.write_text("dummy", encoding="utf-8")
 
     video_info = build_video_info([str(root_2026), str(root_2025)])
 
     assert len(video_info) == 2
     assert set(video_info["video_root"]) == {str(root_2025), str(root_2026)}
     assert set(video_info["rawdata_filename"]) == {"clip_2025.mp4", "clip_2026.mp4"}
+
+
+def test_build_video_info_ignores_video_files_directly_under_video_dir(tmp_path):
+    root_video = tmp_path / "root_clip.mp4"
+    sample_video = tmp_path / "patient_a" / "sample_clip.mp4"
+    sample_video.parent.mkdir()
+    root_video.write_text("root", encoding="utf-8")
+    sample_video.write_text("sample", encoding="utf-8")
+
+    video_info = build_video_info(str(tmp_path))
+
+    assert video_info["filepath"].tolist() == [str(sample_video)]
+    assert video_info["patient_id"].tolist() == ["patient_a"]
 
 
 def test_stage_2_extract_metadata_passes_capture_deinterlace(monkeypatch, tmp_path):
@@ -108,6 +124,7 @@ def test_stage_2_extract_metadata_passes_capture_deinterlace(monkeypatch, tmp_pa
     video_meta = pd.DataFrame(columns=["hash", "hutom_id"])
     dataset_config = {
         "video_dir": str(tmp_path),
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -187,6 +204,7 @@ def test_stage_2_extract_metadata_uses_row_video_root(monkeypatch, tmp_path):
     video_meta = pd.DataFrame(columns=["hash", "hutom_id"])
     dataset_config = {
         "video_dir": [str(root_2026), str(root_2025)],
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -242,7 +260,7 @@ def test_stage_2_extract_metadata_uses_row_video_root(monkeypatch, tmp_path):
     )
 
     assert seen["basepath"] == str(root_2025)
-    assert seen["savepath"] == str(root_2025 / "capture")
+    assert seen["savepath"] == str(tmp_path / "output" / "capture")
 
 
 def test_stage_3_prepare_anonymization_uses_hutomid_and_channel_in_filename(tmp_path):
@@ -266,6 +284,7 @@ def test_stage_3_prepare_anonymization_uses_hutomid_and_channel_in_filename(tmp_
     )
     dataset_config = {
         "video_dir": str(video_dir),
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -276,6 +295,8 @@ def test_stage_3_prepare_anonymization_uses_hutomid_and_channel_in_filename(tmp_
 
     expected_name = "COLON0001_ch1_01.mp4"
     assert Path(jobs[0]["anony_filepath"]).name == expected_name
+    assert Path(jobs[0]["anony_filepath"]).parent == tmp_path / "output" / "ANONYMOUS" / "COLON0001"
+    assert jobs[0]["cmd"][1] == "-y"
     assert result.loc[0, "sourcedata_filename"] == expected_name
     assert result.loc[0, "sourcedata_path"].endswith("/VIDEO/COLON0001")
     assert result.loc[0, "rawdata_path"].endswith("/video/patient_a")
@@ -313,6 +334,7 @@ def test_stage_3_prepare_anonymization_supports_video_dir_list(tmp_path):
     )
     dataset_config = {
         "video_dir": [str(root_2026), str(root_2025)],
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -321,12 +343,12 @@ def test_stage_3_prepare_anonymization_supports_video_dir_list(tmp_path):
 
     result, jobs = stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd)
 
-    assert jobs[0]["anony_filepath"].startswith(str(root_2025 / "ANONYMOUS"))
-    assert jobs[1]["anony_filepath"].startswith(str(root_2026 / "ANONYMOUS"))
+    assert jobs[0]["anony_filepath"].startswith(str(tmp_path / "output" / "ANONYMOUS"))
+    assert jobs[1]["anony_filepath"].startswith(str(tmp_path / "output" / "ANONYMOUS"))
     assert not (root_2025 / "ANONYMOUS").exists()
     assert not (root_2026 / "ANONYMOUS").exists()
-    assert (tmp_path / "VIDEO_MATA_COLON_20260417.xlsx").exists()
-    assert get_dataset_output_dir(dataset_config) == str(tmp_path)
+    assert (tmp_path / "output" / "VIDEO_MATA_COLON_20260417.xlsx").exists()
+    assert get_dataset_output_dir(dataset_config) == str(tmp_path / "output")
     assert result.loc[0, "sourcedata_filename"] == "COLON0001_ch1_01.mp4"
     assert result.loc[1, "sourcedata_filename"] == "COLON0002_ch1_01.mp4"
 
@@ -361,6 +383,7 @@ def test_stage_3_prepare_anonymization_saves_db_format_excel(tmp_path):
     )
     dataset_config = {
         "video_dir": str(video_dir),
+        "output_dir": str(tmp_path / "output"),
         "organ": "COLON",
         "center": "CENTER",
         "importdate": "20260417",
@@ -390,7 +413,7 @@ def test_stage_3_prepare_anonymization_saves_db_format_excel(tmp_path):
         video_meta_columns=video_meta_columns,
     )
 
-    export_path = video_dir / "DB_FORMAT_COLON_20260417.xlsx"
+    export_path = tmp_path / "output" / "DB_FORMAT_COLON_20260417.xlsx"
     export_df = pd.read_excel(export_path)
 
     assert export_path.exists()
@@ -400,3 +423,164 @@ def test_stage_3_prepare_anonymization_saves_db_format_excel(tmp_path):
     assert export_df.loc[0, "rawdata_filepath"].endswith("/video/patient_a")
     assert export_df.loc[0, "sourcedata_filepath"].endswith("/VIDEO/COLON0001")
     assert export_df.loc[0, "sourcedata_filename"] == "COLON0001_ch1_01.mp4"
+
+
+def test_stage_3_prepare_anonymization_skips_duplicate_hash_rows(tmp_path):
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    raw_video = video_dir / "patient_a" / "clip.mp4"
+    raw_video.parent.mkdir(parents=True)
+    raw_video.write_text("dummy", encoding="utf-8")
+
+    video_info = pd.DataFrame(
+        [
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": "ch1_01",
+                "hash": "duplicate-hash",
+            },
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": "ch1_02",
+                "hash": "duplicate-hash",
+            },
+        ]
+    )
+    dataset_config = {
+        "video_dir": str(video_dir),
+        "output_dir": str(tmp_path / "output"),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+    ffmpeg_cmd = ["ffmpeg", "-i", None, None]
+
+    result, jobs = stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd)
+
+    assert len(jobs) == 1
+    assert jobs[0]["row_index"] == 0
+    assert pd.isna(result.loc[1, "anony_filepath"])
+
+
+def test_stage_3_prepare_anonymization_skips_rows_without_channel_name(tmp_path):
+    video_dir = tmp_path / "video"
+    video_dir.mkdir()
+    raw_video = video_dir / "patient_a" / "clip.mp4"
+    raw_video.parent.mkdir(parents=True)
+    raw_video.write_text("dummy", encoding="utf-8")
+
+    video_info = pd.DataFrame(
+        [
+            {
+                "filepath": str(raw_video),
+                "hutom_id": "COLON0001",
+                "ch_name": None,
+                "hash": "hash-without-channel",
+            }
+        ]
+    )
+    dataset_config = {
+        "video_dir": str(video_dir),
+        "output_dir": str(tmp_path / "output"),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+    ffmpeg_cmd = ["ffmpeg", "-i", None, None]
+
+    result, jobs = stage_3_prepare_anonymization(video_info, dataset_config, ffmpeg_cmd)
+
+    assert jobs == []
+    assert pd.isna(result.loc[0, "sourcedata_path"])
+    assert pd.isna(result.loc[0, "sourcedata_filename"])
+    assert pd.isna(result.loc[0, "anony_filepath"])
+
+
+def test_stage_2_extract_metadata_keeps_channel_numbers_contiguous(
+    monkeypatch, tmp_path
+):
+    raw_video = tmp_path / "clip.mp4"
+    raw_video.write_text("dummy", encoding="utf-8")
+    video_info = pd.DataFrame(
+        [
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "first-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "second-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "duplicate-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "duplicate-hash",
+            },
+            {
+                "patient_id": "P001",
+                "filepath": str(raw_video),
+                "rawdata_filename": raw_video.name,
+                "hash": "unique-hash",
+            },
+        ]
+    )
+    video_meta = pd.DataFrame(columns=["hash", "hutom_id"])
+    dataset_config = {
+        "video_dir": str(tmp_path),
+        "organ": "COLON",
+        "center": "CENTER",
+        "importdate": "20260417",
+    }
+
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.get_video_metadata_ffprobe",
+        lambda filepath: {
+            "streams": [
+                {
+                    "width": 1920,
+                    "height": 1080,
+                    "codec_name": "h264",
+                    "avg_frame_rate": "30/1",
+                    "nb_frames": "30",
+                    "duration": "1.0",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.get_video_metadata_opencv",
+        lambda filepath: {
+            "width": 1920,
+            "height": 1080,
+            "fps": 30,
+            "nb_frames": 30,
+            "duration": 1.0,
+        },
+    )
+    monkeypatch.setattr(
+        "h_anonypy.video_pipeline.check_split_screen",
+        lambda frames: None,
+    )
+
+    stage_2_extract_metadata(
+        video_info, dataset_config, video_meta, next_id=1, n_digits=4
+    )
+
+    assert video_info.loc[0, "ch_name"] == "ch1_01"
+    assert video_info.loc[1, "ch_name"] == "ch1_02"
+    assert video_info.loc[2, "ch_name"] is None
+    assert video_info.loc[3, "ch_name"] is None
+    assert video_info.loc[4, "ch_name"] == "ch1_03"
