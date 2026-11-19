@@ -79,15 +79,28 @@ def normalize_config(config):
     if not datasets:
         raise ValueError("Config must include a non-empty 'datasets' list.")
 
+    for index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict) or not dataset.get("output_dir"):
+            raise ValueError(f"datasets[{index}].output_dir is required.")
+
+    preserve_aspect_ratio = config.get("preserve_aspect_ratio", True)
+    if not isinstance(preserve_aspect_ratio, bool):
+        raise ValueError("preserve_aspect_ratio must be true or false.")
+
+    ffmpeg_cmd = DEFAULT_FFMPEG_CMD.copy()
+    if not preserve_aspect_ratio:
+        ffmpeg_cmd[ffmpeg_cmd.index("-vf") + 1] = "scale=1280:1024,setsar=1"
+
     return {
         "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
         "run_anonymization": config.get("run_anonymization", False),
         "recodec": config.get("recodec", True),
+        "preserve_aspect_ratio": preserve_aspect_ratio,
         "verbose": config.get("verbose", True),
         "capture": config.get("capture", False),
         "capture_deinterlace": config.get("capture_deinterlace", False),
-        "ffmpeg_cmd": config.get("ffmpeg_cmd", DEFAULT_FFMPEG_CMD.copy()),
+        "ffmpeg_cmd": config.get("ffmpeg_cmd", ffmpeg_cmd),
         "video_meta_columns": config.get("video_meta_columns"),
         "datasets": datasets,
     }
@@ -191,13 +204,10 @@ def get_dataset_video_dirs(video_dir):
 
 
 def get_dataset_output_dir(dataset_config):
-    if dataset_config.get("output_dir"):
-        return dataset_config["output_dir"]
-
-    video_dirs = get_dataset_video_dirs(dataset_config["video_dir"])
-    if len(video_dirs) == 1:
-        return video_dirs[0]
-    return os.path.commonpath(video_dirs)
+    output_dir = dataset_config.get("output_dir")
+    if not output_dir:
+        raise ValueError("dataset output_dir is required.")
+    return str(output_dir)
 
 
 def get_row_video_root(video_info, row_index, dataset_config):
@@ -282,8 +292,6 @@ def stage_2_extract_metadata(
 
         for row_index in check_idx:
             filepath = check_sample.loc[row_index, "filepath"]
-            video_root = get_row_video_root(video_info, row_index, dataset_config)
-            save_dir = os.path.join(video_root, "capture")
             meta_ffprobe = get_video_metadata_ffprobe(filepath)
             if not meta_ffprobe:
                 video_info.loc[row_index, "format"] = "dameged_file"
@@ -313,6 +321,10 @@ def stage_2_extract_metadata(
             )
 
             if capture:
+                video_root = get_row_video_root(video_info, row_index, dataset_config)
+                save_dir = os.path.join(
+                    get_dataset_output_dir(dataset_config), "capture"
+                )
                 frames = capture_key_frames_by_video(
                     filepath,
                     video_root,
@@ -390,10 +402,11 @@ def stage_3_prepare_anonymization(
         seen_hashes.add(hash_value)
 
         filepath = video_info.loc[row_index, "filepath"]
-        video_root = get_row_video_root(video_info, row_index, dataset_config)
         hutomid = video_info.loc[row_index, "hutom_id"]
         anonyid = f"{hutomid}_{ch_name}.mp4"
-        anony_folder = os.path.join(video_root, "ANONYMOUS", hutomid)
+        anony_folder = os.path.join(
+            get_dataset_output_dir(dataset_config), "ANONYMOUS", hutomid
+        )
         anony_filename = os.path.join(anony_folder, anonyid)
 
         run_cmd = ffmpeg_cmd.copy()

@@ -34,12 +34,14 @@
   "n_digits": 4,
   "run_anonymization": true,
   "recodec": true,
+  "preserve_aspect_ratio": true,
   "verbose": true,
   "capture": true,
   "capture_deinterlace": true,
   "datasets": [
     {
       "video_dir": "/nas/nas6/DataTeam/TEST/DUPLICATE/",
+      "output_dir": "/nas/nas6/DataTeam/TEST/DUPLICATE_OUTPUT/",
       "center": "서울삼성병원",
       "importdate": "20260706",
       "organ": "ESO",

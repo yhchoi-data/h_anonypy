@@ -50,6 +50,7 @@ def test_normalize_dicom_config_applies_defaults():
             "datasets": [
                 {
                     "dicom_dir": "/tmp/dicom",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "LIVER",
@@ -73,6 +74,7 @@ def test_normalize_video_config_applies_defaults():
             "datasets": [
                 {
                     "video_dir": "/tmp/video",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "COLON",
@@ -84,9 +86,64 @@ def test_normalize_video_config_applies_defaults():
     assert normalized["n_digits"] == 4
     assert normalized["run_anonymization"] is False
     assert normalized["recodec"] is True
+    assert normalized["preserve_aspect_ratio"] is True
     assert normalized["verbose"] is True
     assert normalized["capture"] is False
     assert normalized["capture_deinterlace"] is False
+
+
+@pytest.mark.parametrize("preserve", [True, False])
+def test_normalize_video_config_aspect_ratio_modes(preserve):
+    config = {
+        "metadata_source": db_metadata_source(
+            video_meta="video_meta", hids_all="hids_all"
+        ),
+        "datasets": [{"video_dir": "/tmp/video", "output_dir": "/tmp/output"}],
+        "preserve_aspect_ratio": preserve,
+    }
+    normalized = normalize_config(config)
+    command = normalized["ffmpeg_cmd"]
+    video_filter = command[command.index("-vf") + 1]
+    assert normalized["preserve_aspect_ratio"] is preserve
+    if preserve:
+        assert "force_original_aspect_ratio=decrease" in video_filter
+        assert "pad=1280:1024" in video_filter
+    else:
+        assert video_filter == "scale=1280:1024,setsar=1"
+
+    # A second normalization must not retain the preceding mode's filter.
+    del config["preserve_aspect_ratio"]
+    command = normalize_config(config)["ffmpeg_cmd"]
+    assert "pad=1280:1024" in command[command.index("-vf") + 1]
+
+
+def test_normalize_video_config_custom_command_takes_precedence():
+    command = ["ffmpeg", "-i", None, "-vf", "scale=640:480", None]
+    normalized = normalize_config(
+        {
+            "metadata_source": db_metadata_source(
+                video_meta="video_meta", hids_all="hids_all"
+            ),
+            "datasets": [{"video_dir": "/tmp/video", "output_dir": "/tmp/output"}],
+            "preserve_aspect_ratio": False,
+            "ffmpeg_cmd": command,
+        }
+    )
+    assert normalized["ffmpeg_cmd"] == command
+
+
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_normalize_video_config_rejects_non_boolean_aspect_ratio(value):
+    with pytest.raises(ValueError, match="preserve_aspect_ratio"):
+        normalize_config(
+            {
+                "metadata_source": db_metadata_source(
+                    video_meta="video_meta", hids_all="hids_all"
+                ),
+                "datasets": [{"video_dir": "/tmp/video", "output_dir": "/tmp/output"}],
+                "preserve_aspect_ratio": value,
+            }
+        )
 
 
 def test_normalize_video_config_accepts_capture_deinterlace():
@@ -100,6 +157,7 @@ def test_normalize_video_config_accepts_capture_deinterlace():
             "datasets": [
                 {
                     "video_dir": "/tmp/video",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "COLON",
@@ -121,6 +179,7 @@ def test_normalize_video_config_accepts_db_metadata_source():
             "datasets": [
                 {
                     "video_dir": "/tmp/video",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "COLON",
@@ -145,6 +204,7 @@ def test_normalize_video_config_accepts_top_level_db_metadata_source():
             "datasets": [
                 {
                     "video_dir": "/tmp/video",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "COLON",
@@ -173,6 +233,7 @@ def test_normalize_dicom_config_accepts_db_metadata_source():
             "datasets": [
                 {
                     "dicom_dir": "/tmp/dicom",
+                    "output_dir": "/tmp/output",
                     "center": "A",
                     "importdate": "20260416",
                     "organ": "LIVER",
@@ -193,6 +254,7 @@ def test_normalize_config_requires_db_metadata_source():
                 "datasets": [
                     {
                         "video_dir": "/tmp/video",
+                        "output_dir": "/tmp/output",
                         "center": "A",
                         "importdate": "20260416",
                         "organ": "COLON",
@@ -200,6 +262,18 @@ def test_normalize_config_requires_db_metadata_source():
                 ],
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("normalizer", "input_dir_key"),
+    [
+        (normalize_config, "video_dir"),
+        (normalize_dicom_config, "dicom_dir"),
+    ],
+)
+def test_normalize_config_requires_dataset_output_dir(normalizer, input_dir_key):
+    with pytest.raises(ValueError, match=r"datasets\[0\]\.output_dir is required"):
+        normalizer({"datasets": [{input_dir_key: "/tmp/input"}]})
 
 
 def test_build_table_queries_quotes_qualified_table_names():

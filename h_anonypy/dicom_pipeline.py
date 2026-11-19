@@ -14,6 +14,11 @@ from .modules_dicom import (
 )
 from .metadata_source import load_shared_metadata, normalize_metadata_source
 
+DEFAULT_CT_META_FORMAT = (
+    Path(__file__).resolve().parents[1] / "configs" / "CT_META_FORMAT.xlsx"
+)
+CT_DB_FORMAT_COLUMN_MAP = {"hutom id": "hutom_id", "patient id": "PatientID"}
+
 
 def load_dicom_config(config_path):
     config_path = Path(config_path)
@@ -39,11 +44,16 @@ def normalize_dicom_config(config):
     if not datasets:
         raise ValueError("Config must include a non-empty 'datasets' list.")
 
+    for index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict) or not dataset.get("output_dir"):
+            raise ValueError(f"datasets[{index}].output_dir is required.")
+
     return {
         "metadata_source": normalize_metadata_source(config),
         "n_digits": config.get("n_digits", 4),
         "run_anonymization": config.get("run_anonymization", True),
         "verbose": config.get("verbose", True),
+        "ct_meta_format": config.get("ct_meta_format", str(DEFAULT_CT_META_FORMAT)),
         "datasets": datasets,
     }
 
@@ -92,13 +102,10 @@ def get_dataset_dicom_dirs(dicom_dir):
 
 
 def get_dataset_output_dir(dataset_config):
-    if dataset_config.get("output_dir"):
-        return dataset_config["output_dir"]
-
-    dicom_dirs = get_dataset_dicom_dirs(dataset_config["dicom_dir"])
-    if len(dicom_dirs) == 1:
-        return dicom_dirs[0]
-    return os.path.commonpath(dicom_dirs)
+    output_dir = dataset_config.get("output_dir")
+    if not output_dir:
+        raise ValueError("dataset output_dir is required.")
+    return str(output_dir)
 
 
 def get_row_dicom_root(sample_info, row_index, dataset_config):
@@ -166,6 +173,10 @@ def _get_organ_root(dicom_dir, organ):
     dicom_path = Path(dicom_dir)
     if organ in dicom_path.parts:
         idx = dicom_path.parts.index(organ)
+        return Path(*dicom_path.parts[: idx + 1])
+    # URO metadata also covers datasets stored under the legacy kidney folder.
+    if organ == "URO" and "RUS_Kidney" in dicom_path.parts:
+        idx = dicom_path.parts.index("RUS_Kidney")
         return Path(*dicom_path.parts[: idx + 1])
     raise ValueError(f"Could not infer organ root from path: {dicom_dir}")
 
@@ -351,6 +362,53 @@ def save_dicom_preview_metadata(sample_info, dataset_config):
     return preview_path
 
 
+def save_ct_db_format_export(
+    sample_info, dataset_config, ct_meta_format=DEFAULT_CT_META_FORMAT
+):
+    """Fill the CT workbook with one row per assigned hutom ID."""
+    from openpyxl import load_workbook
+
+    template_path = Path(ct_meta_format)
+    workbook = load_workbook(template_path)
+    try:
+        sheet = workbook.active
+        columns = [cell.value for cell in sheet[1]]
+        if "hutom id" not in columns:
+            raise ValueError("CT metadata template must contain a 'hutom id' column.")
+        if not sample_info.empty and "hutom_id" not in sample_info.columns:
+            raise ValueError("CT export requires assigned hutom_id values.")
+
+        unique_samples = sample_info.copy()
+        if "hutom_id" in unique_samples.columns:
+            unique_samples["hutom_id"] = unique_samples["hutom_id"].map(_normalize_key)
+            unique_samples = unique_samples[
+                unique_samples["hutom_id"].notna() & unique_samples["hutom_id"].ne("")
+            ].drop_duplicates(subset="hutom_id", keep="first")
+
+        # Keep the template's header, sheet name, and styles; remove example rows.
+        if sheet.max_row > 1:
+            sheet.delete_rows(2, sheet.max_row - 1)
+        for _, row in unique_samples.iterrows():
+            values = [
+                row.get(CT_DB_FORMAT_COLUMN_MAP.get(column, column))
+                for column in columns
+            ]
+            sheet.append([None if pd.isna(value) else value for value in values])
+
+        output_dir = Path(get_dataset_output_dir(dataset_config))
+        export_path = (
+            output_dir
+            / f"DB_FORMAT_{dataset_config['organ']}_{dataset_config['importdate']}.xlsx"
+        )
+        if export_path.resolve() == template_path.resolve():
+            raise ValueError("CT export path must differ from the template path.")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        workbook.save(export_path)
+        return str(export_path)
+    finally:
+        workbook.close()
+
+
 def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
     jobs = []
     sample_info = sample_info.copy()
@@ -373,7 +431,7 @@ def stage_5_run_anonymization(sample_info, dataset_config, run_anonymization):
         ):
             row = sample_info.loc[row_index]
             dicom_root = get_row_dicom_root(sample_info, row_index, dataset_config)
-            save_dir = Path(dicom_root) / "ANONYMOUS"
+            save_dir = Path(get_dataset_output_dir(dataset_config)) / "ANONYMOUS"
             dicom_dir_name = Path(dicom_root).name
             organ_root = _get_organ_root(dicom_root, dataset_config["organ"])
             posix = Path(sample_path)
@@ -440,6 +498,11 @@ def process_dicom_dataset(dataset_config, shared_data, global_config):
 
     log("[4.5] saving preview metadata", global_config["verbose"])
     save_dicom_preview_metadata(sample_info, dataset_config)
+    save_ct_db_format_export(
+        sample_info,
+        dataset_config,
+        global_config.get("ct_meta_format", DEFAULT_CT_META_FORMAT),
+    )
 
     log("[5] running anonymization", global_config["verbose"])
     sample_info, jobs = stage_5_run_anonymization(

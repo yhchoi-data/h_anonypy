@@ -318,6 +318,8 @@ def get_video_infomation(base_path):
     # 하위 폴더 모두 탐색
     for dirpath, dirnames, filenames in os.walk(base_path):
         dirnames[:] = [dirname for dirname in dirnames if dirname != "ANONYMOUS"]
+        if Path(dirpath) == Path(base_path):
+            continue
         for filename in filenames:
             ext = os.path.splitext(filename)[1].lower()
             if ext in video_extensions and not filename.startswith("._"):

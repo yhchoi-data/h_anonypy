@@ -1,0 +1,14 @@
+numpy
+opencv-python
+openpyxl
+pandas
+psycopg2-binary
+pyyaml
+pydicom
+sqlalchemy
+
+[dev]
+black
+pre-commit
+pytest
+ruff

@@ -19,7 +19,7 @@ repos:
     hooks:
       - id: black
         name: black
-        entry: uv run black --target-version py311
+        entry: pixi run -e dev black --target-version py311
         language: system
         types_or: [python, pyi]
 
@@ -27,6 +27,6 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: pytest -q tests
+        entry: pixi run -e dev pytest -q tests
         language: system
         pass_filenames: false
